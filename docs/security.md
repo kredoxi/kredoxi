@@ -37,7 +37,9 @@ demo passed. Initial Go 1.27.0 govulncheck identified ten reachable standard-
 library advisories including GO-2026-6809 (x509) and net/http advisories;
 requiring/downloading 1.27.3 cleared the same symbol-level scan. This is a
 toolchain fix, not removal/suppression of findings. The runtime has no external
-Go modules. Govulncheck v1.1.4 is a separate pinned validation tool.
+Go modules. Govulncheck is separate pinned validation tooling. The initial
+v1.1.4 scan cleared on Windows but its old SSA analyzer crashed on Go 1.27.3
+Linux syntax; CI and documented commands use current v1.9.0 instead.
 
 Read-only security-review agent found no code vulnerabilities in the initial
 implementation review. This is review evidence, not a security certification.

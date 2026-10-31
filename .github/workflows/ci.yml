@@ -38,7 +38,7 @@ jobs:
           $unformatted = & gofmt -l $files.FullName
           if ($LASTEXITCODE -ne 0 -or $unformatted) { throw "gofmt check failed" }
       - name: Dependency vulnerability check
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
       - name: Build integrity check
         shell: pwsh
         run: |
