@@ -1,5 +1,11 @@
 # Kredoxi synthetic MVP
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/kredoxi/.github/main/logos/kredoxi_logo_optimized.png" alt="Kredoxi wordmark" width="320">
+</p>
+
+<p align="center"><a href="https://github.com/kredoxi/.github/tree/main/logos">Canonical brand assets</a></p>
+
 Kredoxi replaces credentials in configuration with non-secret references, then
 resolves them through an authenticated and policy-authorized runtime boundary.
 This repository demonstrates a narrow **development-only** slice, not a
