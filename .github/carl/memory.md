@@ -11,9 +11,14 @@ Go standard-library-only explicit resolver over loopback mutual TLS 1.3.
 executable Go commands. `cmd/demo` launches them as separate processes over
 loopback TLS 1.3 and sends synthetic bootstrap material through bounded stdin
 pipes without writing private keys or credentials to files. The supervisor
-also holds the synthetic fixture in memory. This demonstrates process
-separation, not OS-account enforcement, executable identity or transparent
-interception.
+also holds the synthetic fixture and serialized bootstrap payloads in memory
+for demo/redaction checks. It builds binaries in a temporary directory,
+captures output, and waits for child exit before cleanup. Linux direct children
+use a parent-death signal and separate process group; Windows uses a
+kill-on-close Job Object. Other operating systems have no added containment
+guarantee. This demonstrates process separation, not OS-account enforcement,
+executable identity, arbitrary descendant cleanup, same-user protection or
+transparent interception.
 
 `internal/resolver` owns grammar, immutable policy, client, broker and telemetry.
 `internal/synthetic` owns an ephemeral development CA. `examples` contains only

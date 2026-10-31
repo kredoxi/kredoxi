@@ -63,6 +63,34 @@ compiled pin and policy together. Events cannot be emitted after SIGKILL or
 privileged termination; stopped-broker detection is a client transport failure,
 not an independently supervised health monitor.
 
+## Development process supervision
+
+The demo builds broker, consumer, and synthetic-service executables in an OS
+temporary directory outside the checkout, starts those binaries directly, and
+waits on the process handles before cleanup. Broker control uses correlated
+JSON-line commands and acknowledgements on the development control/diagnostic
+streams; an acknowledgement is emitted after the requested state transition.
+The HTTP protocol and telemetry event schema are unchanged. Child and
+supervisor stdout/stderr are captured in memory, checked for synthetic
+credentials, private-key material, and serialized bootstrap payloads, and only
+then forwarded. Build/startup diagnostics are also captured and scanned.
+
+The supervisor and relevant child processes hold synthetic credentials or
+private-key material in memory. Serialized bootstrap payloads are passed only
+through stdin pipes, kept in memory for redaction checks, and are not placed in
+argv, the child environment, or files. Child environments are allow-listed.
+This does not provide memory zeroization, dump protection, or protection from
+another process running as the same user.
+
+Linux direct children use a separate process group and a parent-death signal;
+Windows direct children are assigned to a kill-on-job-close Job Object, and
+startup fails if assignment is unavailable. The exercised containment tests
+cover direct child processes only. They do not prove cleanup of arbitrary
+grandchildren, isolation between OS users, privileged resistance, or
+cross-platform behavior on the no-op fallback used by other operating systems.
+The synthetic provider honors request cancellation, but this does not establish
+preemption of an arbitrary blocking provider or other child code.
+
 No credential or private key is written by the demo; bootstrap transfers
 synthetic material over stdin pipes and the supervisor also holds it in memory.
 This does not protect against a compromised supervisor or same-user process.

@@ -31,22 +31,49 @@ func run() error {
 	}
 	ctx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stopSignals()
-	control := make(chan error, 1)
+	type controlInput struct {
+		command devruntime.ControlCommand
+		err     error
+	}
+	control := make(chan controlInput, 1)
 	go func() {
-		command, err := devruntime.ReadControl(reader)
-		if err == nil && command != "stop" {
-			err = errors.New("invalid development control")
-		}
-		control <- err
-	}()
-	select {
-	case <-ctx.Done():
-	case err := <-control:
-		if err != nil && !errors.Is(err, io.EOF) {
-			if closeErr := service.Close(); closeErr != nil {
-				return errors.New("synthetic service shutdown failed")
+		for {
+			command, err := devruntime.ReadControl(reader)
+			control <- controlInput{command: command, err: err}
+			if err != nil || command.Operation == "stop" {
+				return
 			}
-			return errors.New("invalid development control")
+		}
+	}()
+	running := true
+	for running {
+		select {
+		case <-ctx.Done():
+			running = false
+		case input := <-control:
+			if input.err != nil {
+				if !errors.Is(input.err, io.EOF) {
+					if closeErr := service.Close(); closeErr != nil {
+						return errors.New("synthetic service shutdown failed")
+					}
+					return errors.New("invalid development control")
+				}
+				running = false
+				continue
+			}
+			applied := false
+			if input.command.Operation == "stop" {
+				if closeErr := service.Close(); closeErr != nil {
+					return errors.New("synthetic service shutdown failed")
+				}
+				applied = true
+				running = false
+			}
+			if err := devruntime.WriteControlAck(os.Stderr, devruntime.ControlAck{
+				ID: input.command.ID, Operation: input.command.Operation, Applied: applied,
+			}); err != nil {
+				return errors.New("development control acknowledgement failed")
+			}
 		}
 	}
 	if err := service.Close(); err != nil {

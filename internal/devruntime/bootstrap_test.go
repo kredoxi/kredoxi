@@ -40,12 +40,43 @@ func TestBootstrapRoundTripAndValidation(t *testing.T) {
 }
 
 func TestDevelopmentControlIsBounded(t *testing.T) {
-	command, err := ReadControl(bufio.NewReader(strings.NewReader("stop\n")))
-	if err != nil || command != "stop" {
+	want := ControlCommand{ID: 1, Operation: "stop"}
+	encoded, err := EncodeControl(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, err := ReadControl(bufio.NewReader(bytes.NewReader(encoded)))
+	if err != nil || command != want {
 		t.Fatal("valid control rejected")
 	}
-	_, err = ReadControl(bufio.NewReader(strings.NewReader(strings.Repeat("x", 64) + "\n")))
-	if err == nil {
+	for _, input := range []string{
+		`{"id":1,"operation":"stop","operation":"stop"}`,
+		`{"id":1,"operation":"stop","unexpected":true}`,
+		`{"id":1,"operation":"stop"} {}`,
+		`{"id":0,"operation":"stop"}`,
+	} {
+		if _, err := ReadControl(bufio.NewReader(strings.NewReader(input + "\n"))); err == nil {
+			t.Fatal("malformed control accepted")
+		}
+	}
+	if _, err := ReadControl(bufio.NewReader(strings.NewReader(strings.Repeat("x", maxControl) + "\n"))); err == nil {
 		t.Fatal("oversized control accepted")
+	}
+	var output bytes.Buffer
+	if err := WriteControlAck(&output, ControlAck{ID: 1, Operation: "stop", Applied: true}); err != nil {
+		t.Fatal(err)
+	}
+	ack, err := ParseControlAck(strings.TrimSuffix(output.String(), "\n"))
+	if err != nil || ack != (ControlAck{ID: 1, Operation: "stop", Applied: true}) {
+		t.Fatal("valid acknowledgement rejected")
+	}
+	for _, input := range []string{
+		`KREDOXI_ACK {"id":1,"operation":"stop","applied":true,"applied":false}`,
+		`KREDOXI_ACK {"id":1,"operation":"stop","applied":true,"unexpected":true}`,
+		`KREDOXI_ACK {"id":0,"operation":"stop","applied":true}`,
+	} {
+		if _, err := ParseControlAck(input); err == nil {
+			t.Fatal("malformed acknowledgement accepted")
+		}
 	}
 }

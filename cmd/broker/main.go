@@ -6,14 +6,94 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/signal"
+	"sync"
+	"time"
 
 	"github.com/kredoxi/kredoxi/internal/devruntime"
 	"github.com/kredoxi/kredoxi/internal/resolver"
 	"github.com/kredoxi/kredoxi/internal/synthetic"
 )
+
+type controlledProvider struct {
+	base    resolver.Provider
+	mu      sync.Mutex
+	held    chan struct{}
+	active  int
+	changed chan struct{}
+}
+
+func newControlledProvider(base resolver.Provider) *controlledProvider {
+	return &controlledProvider{base: base, changed: make(chan struct{})}
+}
+
+func (p *controlledProvider) notifyLocked() {
+	close(p.changed)
+	p.changed = make(chan struct{})
+}
+
+func (p *controlledProvider) SetHeld(held bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if held {
+		if p.held == nil {
+			p.held = make(chan struct{})
+			p.notifyLocked()
+		}
+		return
+	}
+	if p.held != nil {
+		close(p.held)
+		p.held = nil
+		p.notifyLocked()
+	}
+}
+
+func (p *controlledProvider) WaitForActive(ctx context.Context) error {
+	for {
+		p.mu.Lock()
+		if p.active > 0 {
+			p.mu.Unlock()
+			return nil
+		}
+		changed := p.changed
+		p.mu.Unlock()
+		select {
+		case <-changed:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+func (p *controlledProvider) IsIdle() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.active == 0
+}
+
+func (p *controlledProvider) Resolve(ctx context.Context, reference resolver.Reference) (string, error) {
+	p.mu.Lock()
+	p.active++
+	held := p.held
+	p.notifyLocked()
+	p.mu.Unlock()
+	defer func() {
+		p.mu.Lock()
+		p.active--
+		p.notifyLocked()
+		p.mu.Unlock()
+	}()
+	if held != nil {
+		select {
+		case <-held:
+		case <-ctx.Done():
+			return "", resolver.Canceled
+		}
+	}
+	return p.base.Resolve(ctx, reference)
+}
 
 func run() error {
 	reader := bufio.NewReaderSize(os.Stdin, 32*1024+1)
@@ -34,12 +114,13 @@ func run() error {
 	if _, err := resolver.ParseReference(bootstrap.Reference); err != nil {
 		return resolver.InvalidReference
 	}
-	provider, err := resolver.NewSyntheticProviderWithValues(map[string]string{
+	baseProvider, err := resolver.NewSyntheticProviderWithValues(map[string]string{
 		bootstrap.Reference: bootstrap.Credential,
 	})
 	if err != nil {
 		return err
 	}
+	provider := newControlledProvider(baseProvider)
 	serverTLS, err := synthetic.ServerConfigFromMaterial(bootstrap.TLS)
 	if err != nil {
 		return resolver.InvalidRequest
@@ -60,23 +141,21 @@ func run() error {
 	}
 	ctx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stopSignals()
-	control := make(chan struct {
-		command string
+	type controlInput struct {
+		command devruntime.ControlCommand
 		err     error
-	}, 1)
+	}
+	control := make(chan controlInput, 1)
 	go func() {
 		for {
 			command, err := devruntime.ReadControl(reader)
-			control <- struct {
-				command string
-				err     error
-			}{command: command, err: err}
-			if err != nil || command == "stop" {
+			control <- controlInput{command: command, err: err}
+			if err != nil || command.Operation == "stop" {
 				return
 			}
 		}
 	}()
-	running := true
+	running, brokerClosed := true, false
 	var controlErr error
 	for running {
 		select {
@@ -84,29 +163,53 @@ func run() error {
 			running = false
 		case input := <-control:
 			if input.err != nil {
-				if errors.Is(input.err, io.EOF) {
-					running = false
-					continue
-				}
 				controlErr = errors.New("development control failed")
 				running = false
 				continue
 			}
-			switch input.command {
+			command := input.command
+			applied := true
+			switch command.Operation {
 			case "provider-unavailable":
-				provider.SetAvailable(false)
+				baseProvider.SetAvailable(false)
 			case "provider-available":
-				provider.SetAvailable(true)
+				baseProvider.SetAvailable(true)
+			case "provider-hold":
+				provider.SetHeld(true)
+			case "provider-release":
+				provider.SetHeld(false)
+			case "await-provider":
+				waitCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				applied = provider.WaitForActive(waitCtx) == nil
+				cancel()
+			case "provider-idle":
+				applied = provider.IsIdle()
 			case "stop":
-				running = false
+				if err := broker.Close(); err != nil {
+					controlErr = errors.New("broker shutdown failed")
+					applied = false
+				} else {
+					brokerClosed = true
+				}
 			default:
-				controlErr = errors.New("invalid development control")
+				applied = false
+			}
+			if err := devruntime.WriteControlAck(os.Stderr, devruntime.ControlAck{
+				ID: command.ID, Operation: command.Operation, Applied: applied,
+			}); err != nil {
+				controlErr = errors.New("development control acknowledgement failed")
+				running = false
+				continue
+			}
+			if command.Operation == "stop" && applied {
 				running = false
 			}
 		}
 	}
-	if err := broker.Close(); err != nil {
-		return err
+	if !brokerClosed {
+		if err := broker.Close(); err != nil && controlErr == nil {
+			return err
+		}
 	}
 	return controlErr
 }

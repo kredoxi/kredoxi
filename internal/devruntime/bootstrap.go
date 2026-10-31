@@ -6,12 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"strings"
 
 	"github.com/kredoxi/kredoxi/internal/synthetic"
 )
 
 const maxBootstrap = 32 * 1024
+const maxControl = 256
 
 type BrokerBootstrap struct {
 	TLS          synthetic.TLSMaterial `json:"tls"`
@@ -29,6 +29,17 @@ type ConsumerBootstrap struct {
 
 type ServiceBootstrap struct {
 	Credential string `json:"credential"`
+}
+
+type ControlCommand struct {
+	ID        uint64 `json:"id"`
+	Operation string `json:"operation"`
+}
+
+type ControlAck struct {
+	ID        uint64 `json:"id"`
+	Operation string `json:"operation"`
+	Applied   bool   `json:"applied"`
 }
 
 func Encode(value any) ([]byte, error) {
@@ -118,17 +129,71 @@ func inspectJSON(decoder *json.Decoder, depth int) error {
 	return nil
 }
 
-func ReadControl(reader *bufio.Reader) (string, error) {
+func EncodeControl(command ControlCommand) ([]byte, error) {
+	if command.ID == 0 || command.Operation == "" || len(command.Operation) > 64 {
+		return nil, errors.New("invalid development control")
+	}
+	data, err := json.Marshal(command)
+	if err != nil || len(data)+1 > maxControl {
+		return nil, errors.New("invalid development control")
+	}
+	return append(data, '\n'), nil
+}
+
+func WriteControlAck(writer io.Writer, ack ControlAck) error {
+	if ack.ID == 0 || ack.Operation == "" || len(ack.Operation) > 64 {
+		return errors.New("invalid development control acknowledgement")
+	}
+	data, err := json.Marshal(ack)
+	if err != nil || len(data)+len("KREDOXI_ACK \n") > maxControl {
+		return errors.New("invalid development control acknowledgement")
+	}
+	_, err = writer.Write(append(append([]byte("KREDOXI_ACK "), data...), '\n'))
+	return err
+}
+
+func ParseControlAck(line string) (ControlAck, error) {
+	var ack ControlAck
+	const prefix = "KREDOXI_ACK "
+	if len(line) > maxControl || len(line) <= len(prefix) || line[:len(prefix)] != prefix {
+		return ack, errors.New("invalid development control acknowledgement")
+	}
+	data := []byte(line[len(prefix):])
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&ack); err != nil || ack.ID == 0 || ack.Operation == "" ||
+		len(ack.Operation) > 64 {
+		return ControlAck{}, errors.New("invalid development control acknowledgement")
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		return ControlAck{}, errors.New("invalid development control acknowledgement")
+	}
+	canonical, err := json.Marshal(ack)
+	if err != nil || !bytes.Equal(canonical, data) {
+		return ControlAck{}, errors.New("invalid development control acknowledgement")
+	}
+	return ack, nil
+}
+
+func ReadControl(reader *bufio.Reader) (ControlCommand, error) {
 	line, err := reader.ReadSlice('\n')
-	if err != nil {
-		return "", err
+	if err != nil || len(line) > maxControl {
+		return ControlCommand{}, errors.New("invalid development control")
 	}
-	if len(line) > 32 {
-		return "", errors.New("invalid development control")
+	data := line[:len(line)-1]
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var command ControlCommand
+	if err := decoder.Decode(&command); err != nil || command.ID == 0 ||
+		command.Operation == "" || len(command.Operation) > 64 {
+		return ControlCommand{}, errors.New("invalid development control")
 	}
-	command := strings.TrimSpace(string(line[:len(line)-1]))
-	if command == "" {
-		return "", errors.New("invalid development control")
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		return ControlCommand{}, errors.New("invalid development control")
+	}
+	canonical, err := json.Marshal(command)
+	if err != nil || !bytes.Equal(canonical, data) {
+		return ControlCommand{}, errors.New("invalid development control")
 	}
 	return command, nil
 }

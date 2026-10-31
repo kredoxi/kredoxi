@@ -45,6 +45,24 @@ func run() error {
 		return resolver.InvalidRequest
 	}
 	defer client.Close()
+	if _, err := fmt.Fprintln(os.Stderr, "KREDOXI_READY consumer"); err != nil {
+		return resolver.InvalidRequest
+	}
+	for {
+		command, err := devruntime.ReadControl(reader)
+		if err != nil {
+			return resolver.InvalidRequest
+		}
+		applied := command.Operation == "resolve"
+		if err := devruntime.WriteControlAck(os.Stderr, devruntime.ControlAck{
+			ID: command.ID, Operation: command.Operation, Applied: applied,
+		}); err != nil {
+			return resolver.InvalidRequest
+		}
+		if applied {
+			break
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	err = resolver.Consume(ctx, client, data, func(credential string) error {

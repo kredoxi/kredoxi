@@ -1,21 +1,16 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/kredoxi/kredoxi/examples"
@@ -23,35 +18,6 @@ import (
 	"github.com/kredoxi/kredoxi/internal/resolver"
 	"github.com/kredoxi/kredoxi/internal/synthetic"
 )
-
-type childProcess struct {
-	name   string
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	done   chan error
-	failed bool
-	result error
-}
-
-type auditCapture struct {
-	mu   sync.Mutex
-	data bytes.Buffer
-}
-
-func (c *auditCapture) Write(data []byte) (int, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if _, err := c.data.Write(data); err != nil {
-		return 0, err
-	}
-	return os.Stdout.Write(data)
-}
-
-func (c *auditCapture) contains(value string) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return bytes.Contains(c.data.Bytes(), []byte(value))
-}
 
 func moduleRoot() (string, error) {
 	directory, err := os.Getwd()
@@ -71,136 +37,33 @@ func moduleRoot() (string, error) {
 	}
 }
 
-func startProcess(root, name, packagePath string, args []string, bootstrap any, stdout io.Writer, waitForReady bool) (*childProcess, string, error) {
-	data, err := devruntime.Encode(bootstrap)
-	if err != nil {
-		return nil, "", errors.New("development bootstrap failed")
+func randomCredential() (string, error) {
+	value := make([]byte, 32)
+	if _, err := rand.Read(value); err != nil {
+		return "", resolver.InternalFailure
 	}
-	commandArgs := append([]string{"run", packagePath}, args...)
-	command := exec.Command("go", commandArgs...)
-	command.Dir = root
-	command.Stdout = stdout
-	stderr, err := command.StderrPipe()
-	if err != nil {
-		return nil, "", errors.New("process startup failed")
-	}
-	input, err := command.StdinPipe()
-	if err != nil {
-		return nil, "", errors.New("process startup failed")
-	}
-	if err := command.Start(); err != nil {
-		return nil, "", errors.New("process startup failed")
-	}
-	child := &childProcess{name: name, cmd: command, stdin: input, done: make(chan error, 1)}
-	go func() { child.done <- command.Wait() }()
-	ready := make(chan string, 1)
-	go func() {
-		scanner := bufio.NewScanner(stderr)
-		prefix := "KREDOXI_READY " + name + " "
-		for scanner.Scan() {
-			line := scanner.Text()
-			if strings.HasPrefix(line, prefix) {
-				ready <- strings.TrimSpace(strings.TrimPrefix(line, prefix))
-				continue
-			}
-			fmt.Fprintln(os.Stderr, line)
-		}
-		if err := scanner.Err(); err != nil {
-			fmt.Fprintln(os.Stderr, "child diagnostic stream failed")
-		}
-	}()
-	if _, err := input.Write(data); err != nil {
-		child.terminate()
-		return nil, "", errors.New("process bootstrap failed")
-	}
-	if !waitForReady {
-		if err := input.Close(); err != nil {
-			child.terminate()
-			return nil, "", errors.New("process bootstrap failed")
-		}
-		return child, "", nil
-	}
-	select {
-	case address := <-ready:
-		if err := validateAddress(address); err != nil {
-			child.terminate()
-			return nil, "", err
-		}
-		return child, address, nil
-	case processErr := <-child.done:
-		child.result = processErr
-		child.failed = true
-		return nil, "", errors.New("process exited before readiness")
-	case <-time.After(30 * time.Second):
-		child.terminate()
-		return nil, "", errors.New("process startup timed out")
-	}
+	return hex.EncodeToString(value), nil
 }
 
-func validateAddress(address string) error {
-	host, port, err := net.SplitHostPort(address)
-	number, portErr := strconv.Atoi(port)
-	if err != nil || portErr != nil || host != "127.0.0.1" || number < 1 || number > 65535 {
-		return errors.New("child returned an invalid loopback address")
+func appendTLSSecrets(secrets [][]byte, materials ...synthetic.TLSMaterial) [][]byte {
+	for _, material := range materials {
+		secrets = append(secrets, material.PrivateKey)
+		encoded := make([]byte, base64.StdEncoding.EncodedLen(len(material.PrivateKey)))
+		base64.StdEncoding.Encode(encoded, material.PrivateKey)
+		secrets = append(secrets, encoded)
 	}
-	return nil
+	return secrets
 }
 
-func (p *childProcess) send(command string) error {
-	if p == nil || p.failed {
-		return errors.New("process is not running")
-	}
-	if _, err := fmt.Fprintln(p.stdin, command); err != nil {
-		return errors.New("process control failed")
-	}
-	return nil
+func startBroker(binary string, bootstrap devruntime.BrokerBootstrap, outputs *outputSet) (*childProcess, string, error) {
+	return startExecutable(binary, "broker", nil, bootstrap, true, outputs.process("broker"), startupTimeout)
 }
 
-func (p *childProcess) wait(timeout time.Duration) error {
-	if p.failed {
-		return p.result
-	}
-	select {
-	case p.result = <-p.done:
-		p.failed = true
-		if p.result != nil {
-			return errors.New("child process failed")
-		}
-		return nil
-	case <-time.After(timeout):
-		p.terminate()
-		return errors.New("child process shutdown timed out")
-	}
+func startService(binary string, bootstrap devruntime.ServiceBootstrap, outputs *outputSet) (*childProcess, string, error) {
+	return startExecutable(binary, "service", nil, bootstrap, true, outputs.process("service"), startupTimeout)
 }
 
-func (p *childProcess) stop() error {
-	if p == nil || p.failed {
-		return nil
-	}
-	_ = p.send("stop")
-	_ = p.stdin.Close()
-	return p.wait(10 * time.Second)
-}
-
-func (p *childProcess) terminate() {
-	if p == nil {
-		return
-	}
-	_ = p.stdin.Close()
-	if p.cmd.Process != nil {
-		_ = p.cmd.Process.Kill()
-	}
-	if !p.failed {
-		p.result = <-p.done
-		p.failed = true
-	}
-}
-
-func startBroker(root string, bootstrap devruntime.BrokerBootstrap, audit io.Writer) (*childProcess, string, error) {
-	return startProcess(root, "broker", "./cmd/broker", nil, bootstrap, audit, true)
-}
-
-func runConsumer(root string, material synthetic.TLSMaterial, brokerAddress, serviceAddress, expectedError string) error {
+func startConsumer(binary, root string, material synthetic.TLSMaterial, brokerAddress, serviceAddress, expectedError string, outputs *outputSet) (*childProcess, error) {
 	bootstrap := devruntime.ConsumerBootstrap{
 		TLS: material, BrokerAddress: brokerAddress, ServiceAddress: serviceAddress,
 	}
@@ -208,23 +71,81 @@ func runConsumer(root string, material synthetic.TLSMaterial, brokerAddress, ser
 	if expectedError != "" {
 		args = append(args, "--expect-error", expectedError)
 	}
-	child, _, err := startProcess(root, "consumer", "./cmd/consumer", args, bootstrap, io.Discard, false)
+	child, _, err := startExecutable(
+		binary, "consumer", args, bootstrap, true, outputs.process("consumer"), startupTimeout,
+	)
+	return child, err
+}
+
+func runConsumer(binary, root string, material synthetic.TLSMaterial, brokerAddress, serviceAddress, expectedError string, outputs *outputSet) error {
+	child, err := startConsumer(binary, root, material, brokerAddress, serviceAddress, expectedError, outputs)
 	if err != nil {
+		return err
+	}
+	ack, err := child.control("resolve", controlTimeout)
+	if err != nil || !ack.Applied {
+		_ = child.terminate(shutdownTimeout)
+		return errors.New("consumer resolution gate failed")
+	}
+	if err := child.closeInput(); err != nil {
+		_ = child.terminate(shutdownTimeout)
 		return err
 	}
 	return child.wait(15 * time.Second)
 }
 
-func run() (err error) {
+func makeBrokerBootstrap(serverMaterial synthetic.TLSMaterial, credential string) devruntime.BrokerBootstrap {
+	digest := sha256.Sum256([]byte(examples.TrustedPolicy))
+	return devruntime.BrokerBootstrap{
+		TLS: serverMaterial, Policy: examples.Policy,
+		PolicyDigest: hex.EncodeToString(digest[:]),
+		Reference:    examples.Reference, Credential: credential,
+	}
+}
+
+func run() error {
+	return runWithWriters(os.Stdout, os.Stderr, nil)
+}
+
+func runWithWriters(stdout, stderr io.Writer, observe func(*outputSet)) (err error) {
+	outputs := newOutputSet()
+	var binaries map[string]string
+	var broker, service *childProcess
+	var secrets [][]byte
+	defer func() {
+		if broker != nil {
+			err = errors.Join(err, broker.stopBroker())
+		}
+		if service != nil {
+			err = errors.Join(err, service.stopControlled())
+		}
+		if !allProcessesStopped(outputs) {
+			err = errors.Join(err, errors.New("temporary executable cleanup skipped because child exit was not confirmed"))
+		} else {
+			err = errors.Join(err, assertBuildDirectoryRedacted(outputs, secrets...))
+			err = errors.Join(err, removeBuildDirectory(outputs))
+		}
+		err = errors.Join(err, outputs.assertRedacted(secrets...))
+		if err == nil {
+			err = outputs.writeSupervisor(stdout, stderr)
+		}
+		if observe != nil {
+			observe(outputs)
+		}
+	}()
+
 	root, err := moduleRoot()
 	if err != nil {
 		return err
 	}
-	randomCredential := make([]byte, 32)
-	if _, err := rand.Read(randomCredential); err != nil {
-		return resolver.InternalFailure
+	binaries, err = buildExecutables(root, outputs)
+	if err != nil {
+		return err
 	}
-	credential := hex.EncodeToString(randomCredential)
+	credential, err := randomCredential()
+	if err != nil {
+		return err
+	}
 	pki, err := synthetic.NewPKI()
 	if err != nil {
 		return resolver.InternalFailure
@@ -241,76 +162,97 @@ func run() (err error) {
 	if err != nil {
 		return resolver.InternalFailure
 	}
-	policyDigest := sha256.Sum256([]byte(examples.TrustedPolicy))
-	brokerBootstrap := devruntime.BrokerBootstrap{
-		TLS: serverMaterial, Policy: examples.Policy,
-		PolicyDigest: hex.EncodeToString(policyDigest[:]),
-		Reference:    examples.Reference, Credential: credential,
-	}
-	auditOutput := &auditCapture{}
-	service, serviceAddress, err := startProcess(root, "service", "./cmd/synthetic-service", nil,
-		devruntime.ServiceBootstrap{Credential: credential}, io.Discard, true)
+	brokerBootstrap := makeBrokerBootstrap(serverMaterial, credential)
+	serviceBootstrap := devruntime.ServiceBootstrap{Credential: credential}
+	secrets = append(secrets, []byte(credential))
+	secrets = appendTLSSecrets(secrets, serverMaterial, authorizedMaterial, unauthorizedMaterial)
+
+	service, serviceAddress, err := startService(binaries["service"], serviceBootstrap, outputs)
 	if err != nil {
 		return err
 	}
-	defer func() {
-		if closeErr := service.stop(); err == nil && closeErr != nil {
-			err = closeErr
-		}
-	}()
-	broker, brokerAddress, err := startBroker(root, brokerBootstrap, auditOutput)
+	broker, brokerAddress, err := startBroker(binaries["broker"], brokerBootstrap, outputs)
 	if err != nil {
 		return err
 	}
-	defer func() {
-		if closeErr := broker.stop(); err == nil && closeErr != nil {
-			err = closeErr
-		}
-	}()
-	if err := runConsumer(root, authorizedMaterial, brokerAddress, serviceAddress, ""); err != nil {
+	if err := runConsumer(binaries["consumer"], root, authorizedMaterial, brokerAddress, serviceAddress, "", outputs); err != nil {
 		return err
 	}
-	fmt.Fprintln(os.Stderr, "demo: authorized consumer used the synthetic service from a separate process")
-	if err := runConsumer(root, unauthorizedMaterial, brokerAddress, serviceAddress, string(resolver.PolicyDenied)); err != nil {
+	fmt.Fprintln(outputs.capture("supervisor.stderr"), "demo: authorized consumer used the synthetic service")
+	if err := runConsumer(binaries["consumer"], root, unauthorizedMaterial, brokerAddress, serviceAddress, string(resolver.PolicyDenied), outputs); err != nil {
 		return err
 	}
-	fmt.Fprintln(os.Stderr, "demo: unauthorized process received policy_denied")
-	if err := broker.send("provider-unavailable"); err != nil {
+	fmt.Fprintln(outputs.capture("supervisor.stderr"), "demo: unauthorized consumer received policy_denied")
+	if err := broker.requireApplied("provider-unavailable", controlTimeout); err != nil {
 		return err
 	}
-	if err := runConsumer(root, authorizedMaterial, brokerAddress, serviceAddress, string(resolver.ProviderUnavailable)); err != nil {
+	if err := runConsumer(binaries["consumer"], root, authorizedMaterial, brokerAddress, serviceAddress, string(resolver.ProviderUnavailable), outputs); err != nil {
 		return err
 	}
-	fmt.Fprintln(os.Stderr, "demo: provider outage returned provider_unavailable")
-	if err := broker.stop(); err != nil {
+	fmt.Fprintln(outputs.capture("supervisor.stderr"), "demo: provider outage returned provider_unavailable")
+	if err := broker.requireApplied("provider-available", controlTimeout); err != nil {
+		return err
+	}
+	if err := runConsumer(binaries["consumer"], root, authorizedMaterial, brokerAddress, serviceAddress, "", outputs); err != nil {
+		return err
+	}
+	if err := broker.stopBroker(); err != nil {
 		return err
 	}
 	broker = nil
-	if err := runConsumer(root, authorizedMaterial, brokerAddress, serviceAddress, string(resolver.BrokerUnavailable)); err != nil {
+	if err := runConsumer(binaries["consumer"], root, authorizedMaterial, brokerAddress, serviceAddress, string(resolver.BrokerUnavailable), outputs); err != nil {
 		return err
 	}
-	fmt.Fprintln(os.Stderr, "demo: stopped broker returned broker_unavailable")
-	broker, brokerAddress, err = startBroker(root, brokerBootstrap, auditOutput)
-	if err != nil {
-		return err
-	}
-	if err := runConsumer(root, authorizedMaterial, brokerAddress, serviceAddress, ""); err != nil {
-		return err
-	}
-	if err := broker.stop(); err != nil {
-		return err
-	}
-	broker = nil
-	if err := service.stop(); err != nil {
+	fmt.Fprintln(outputs.capture("supervisor.stderr"), "demo: stopped broker returned broker_unavailable")
+	if err := service.stopControlled(); err != nil {
 		return err
 	}
 	service = nil
-	for _, sensitive := range []string{credential, examples.Reference, examples.Principal} {
-		if auditOutput.contains(sensitive) {
-			return errors.New("demo telemetry contains sensitive data")
-		}
+
+	rotatedCredential, err := randomCredential()
+	if err != nil {
+		return err
 	}
-	fmt.Fprintln(os.Stderr, "demo: broker restart and graceful shutdown succeeded; OS-account identity was not tested")
+	rotatedPKI, err := synthetic.NewPKI()
+	if err != nil {
+		return resolver.InternalFailure
+	}
+	rotatedServerMaterial, err := rotatedPKI.ServerMaterial()
+	if err != nil {
+		return resolver.InternalFailure
+	}
+	rotatedClientMaterial, err := rotatedPKI.ClientMaterial(examples.Principal)
+	if err != nil {
+		return resolver.InternalFailure
+	}
+	rotatedBrokerBootstrap := makeBrokerBootstrap(rotatedServerMaterial, rotatedCredential)
+	rotatedServiceBootstrap := devruntime.ServiceBootstrap{Credential: rotatedCredential}
+	secrets = append(secrets, []byte(rotatedCredential))
+	secrets = appendTLSSecrets(secrets, rotatedServerMaterial, rotatedClientMaterial)
+	service, serviceAddress, err = startService(binaries["service"], rotatedServiceBootstrap, outputs)
+	if err != nil {
+		return err
+	}
+	broker, brokerAddress, err = startBroker(binaries["broker"], rotatedBrokerBootstrap, outputs)
+	if err != nil {
+		return err
+	}
+	if err := runConsumer(binaries["consumer"], root, authorizedMaterial, brokerAddress, serviceAddress, string(resolver.BrokerUnavailable), outputs); err != nil {
+		return err
+	}
+	if err := runConsumer(binaries["consumer"], root, rotatedClientMaterial, brokerAddress, serviceAddress, "", outputs); err != nil {
+		return err
+	}
+	fmt.Fprintln(outputs.capture("supervisor.stderr"), "demo: broker restart used fresh synthetic identity and provider state")
+	if err := broker.stopBroker(); err != nil {
+		return err
+	}
+	broker = nil
+	if err := service.stopControlled(); err != nil {
+		return err
+	}
+	service = nil
+	fmt.Fprintln(outputs.capture("supervisor.stderr"), "demo: graceful shutdown verified; OS-account identity was not tested")
 	return nil
 }
 
