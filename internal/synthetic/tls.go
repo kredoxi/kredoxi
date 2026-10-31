@@ -7,6 +7,8 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/pem"
+	"errors"
 	"math/big"
 	"net"
 	"net/url"
@@ -17,6 +19,12 @@ type PKI struct {
 	root  *x509.Certificate
 	key   *ecdsa.PrivateKey
 	roots *x509.CertPool
+}
+
+type TLSMaterial struct {
+	RootCertificate []byte `json:"root_certificate"`
+	Certificate     []byte `json:"certificate"`
+	PrivateKey      []byte `json:"private_key"`
 }
 
 func serial() (*big.Int, error) {
@@ -95,6 +103,46 @@ func (p *PKI) ServerConfig() (*tls.Config, error) {
 	}, nil
 }
 
+func (p *PKI) ServerMaterial() (TLSMaterial, error) {
+	certificate, err := p.certificate("", true)
+	if err != nil {
+		return TLSMaterial{}, err
+	}
+	return p.material(certificate)
+}
+
+func (p *PKI) ClientMaterial(principal string) (TLSMaterial, error) {
+	certificate, err := p.certificate(principal, false)
+	if err != nil {
+		return TLSMaterial{}, err
+	}
+	return p.material(certificate)
+}
+
+func (p *PKI) material(certificate tls.Certificate) (TLSMaterial, error) {
+	key, err := x509.MarshalPKCS8PrivateKey(certificate.PrivateKey)
+	if err != nil {
+		return TLSMaterial{}, err
+	}
+	return TLSMaterial{
+		RootCertificate: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: p.root.Raw}),
+		Certificate:     pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificate.Certificate[0]}),
+		PrivateKey:      pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: key}),
+	}, nil
+}
+
+func ServerConfigFromMaterial(material TLSMaterial) (*tls.Config, error) {
+	certificate, roots, err := parseMaterial(material)
+	if err != nil {
+		return nil, err
+	}
+	return &tls.Config{
+		Certificates: []tls.Certificate{certificate}, ClientCAs: roots,
+		ClientAuth: tls.RequireAndVerifyClientCert, MinVersion: tls.VersionTLS13,
+		MaxVersion: tls.VersionTLS13, SessionTicketsDisabled: true,
+	}, nil
+}
+
 func (p *PKI) ClientConfig(principal string) (*tls.Config, error) {
 	certificate, err := p.certificate(principal, false)
 	if err != nil {
@@ -104,4 +152,38 @@ func (p *PKI) ClientConfig(principal string) (*tls.Config, error) {
 		Certificates: []tls.Certificate{certificate}, RootCAs: p.roots.Clone(),
 		ServerName: "127.0.0.1", MinVersion: tls.VersionTLS13, MaxVersion: tls.VersionTLS13,
 	}, nil
+}
+
+func ClientConfigFromMaterial(material TLSMaterial) (*tls.Config, error) {
+	certificate, roots, err := parseMaterial(material)
+	if err != nil {
+		return nil, err
+	}
+	return &tls.Config{
+		Certificates: []tls.Certificate{certificate}, RootCAs: roots,
+		ServerName: "127.0.0.1", MinVersion: tls.VersionTLS13, MaxVersion: tls.VersionTLS13,
+	}, nil
+}
+
+func parseMaterial(material TLSMaterial) (tls.Certificate, *x509.CertPool, error) {
+	if len(material.RootCertificate) == 0 || len(material.Certificate) == 0 ||
+		len(material.PrivateKey) == 0 {
+		return tls.Certificate{}, nil, errors.New("invalid synthetic TLS material")
+	}
+	certificate, err := tls.X509KeyPair(material.Certificate, material.PrivateKey)
+	if err != nil {
+		return tls.Certificate{}, nil, err
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(material.RootCertificate) {
+		return tls.Certificate{}, nil, errors.New("invalid synthetic TLS material")
+	}
+	if certificate.Leaf == nil {
+		leaf, err := x509.ParseCertificate(certificate.Certificate[0])
+		if err != nil {
+			return tls.Certificate{}, nil, err
+		}
+		certificate.Leaf = leaf
+	}
+	return certificate, roots, nil
 }

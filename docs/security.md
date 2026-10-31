@@ -5,7 +5,7 @@
 | Tier | Demonstrated boundary | Not protected |
 |---|---|---|
 | 1: passive configuration/source theft | Consumer config holds only non-secret reference; generated fixture absent from source | Reference metadata; attacker with other runtime authorization |
-| 2: unprivileged local compromise | Arbitrary TLS caller cannot resolve without enrolled CA key + exact policy; loopback encrypts response | Same-user private-key/memory theft, caller compromise, connection starvation |
+| 2: unprivileged local compromise | Arbitrary TLS caller cannot resolve without enrolled CA key + exact policy; loopback encrypts response | A stolen authorized client key can impersonate its certificate principal; same-user memory theft, caller compromise, connection starvation |
 | 3: authorized application compromise | Policy constrains accessible references | Authorized credential exfiltration; test deliberately captures value in consumer callback |
 | 4: privileged host compromise | No prevention claim | Root/admin memory reads, binary/policy replacement, hooks, termination, audit deletion |
 
@@ -16,9 +16,11 @@ review and scanning reduce risk but are not runtime integrity enforcement.
 
 ## Reproducible evidence
 
-`go run ./cmd/demo` checks service challenge success, authenticated policy denial,
-unavailable provider and broker shutdown. Tests cover strict malformed/traversal/
-Unicode/encoded references, JSON framing/type/duplicate/case/unknown-field abuse,
+`go run ./cmd/demo` starts separate broker, consumer and synthetic-service Go
+processes, and checks service challenge success, authenticated policy denial,
+provider outage, broker shutdown/restart, and telemetry redaction. Tests cover
+policy denial before provider lookup, authorized `secret_not_found`, strict
+malformed/traversal/Unicode/encoded references, JSON framing/type/duplicate/case/unknown-field abuse,
 foreign CA, absent certificate, URI claim mismatch and TLS downgrade, policy
 pin tampering/immutability, absent secret, provider-diagnostic redaction,
 sticky audit/short-write failure, canceled calls, repeated application requests, client
@@ -51,7 +53,8 @@ which correctly changes the next binary hash. VCS provenance is not disabled.
 
 ## Remaining attack surfaces
 
-No interception, OS peer/process attestation, key enrollment/persistence,
+No interception, OS peer/process attestation, OS-account enforcement,
+production key enrollment/persistence,
 production secret provider, TTL/rotation/cache, revocation service, policy
 signature/antirollback, binary integrity watcher, privileged tamper prevention,
 locked memory, reliable zeroization, crash-dump prevention or protected event log.
@@ -60,6 +63,37 @@ compiled pin and policy together. Events cannot be emitted after SIGKILL or
 privileged termination; stopped-broker detection is a client transport failure,
 not an independently supervised health monitor.
 
+## Development process supervision
+
+The demo builds broker, consumer, and synthetic-service executables in an OS
+temporary directory outside the checkout, starts those binaries directly, and
+waits on the process handles before cleanup. Broker control uses correlated
+JSON-line commands and acknowledgements on the development control/diagnostic
+streams; an acknowledgement is emitted after the requested state transition.
+The HTTP protocol and telemetry event schema are unchanged. Child and
+supervisor stdout/stderr are captured in memory, checked for synthetic
+credentials, private-key material, and serialized bootstrap payloads, and only
+then forwarded. Build/startup diagnostics are also captured and scanned.
+
+The supervisor and relevant child processes hold synthetic credentials or
+private-key material in memory. Serialized bootstrap payloads are passed only
+through stdin pipes, kept in memory for redaction checks, and are not placed in
+argv, the child environment, or files. Child environments are allow-listed.
+This does not provide memory zeroization, dump protection, or protection from
+another process running as the same user.
+
+Linux direct children use a separate process group and a parent-death signal;
+Windows direct children are assigned to a kill-on-job-close Job Object, and
+startup fails if assignment is unavailable. The exercised containment tests
+cover direct child processes only. They do not prove cleanup of arbitrary
+grandchildren, isolation between OS users, privileged resistance, or
+cross-platform behavior on the no-op fallback used by other operating systems.
+The synthetic provider honors request cancellation, but this does not establish
+preemption of an arbitrary blocking provider or other child code.
+
+No credential or private key is written by the demo; bootstrap transfers
+synthetic material over stdin pipes and the supervisor also holds it in memory.
+This does not protect against a compromised supervisor or same-user process.
 No secret-bearing filesystem reads/writes means vault symlink/TOCTOU races
 are not implemented paths. Embedded source config and build inputs remain
 under ordinary repository/toolchain permissions; no secure-file-I/O claim.

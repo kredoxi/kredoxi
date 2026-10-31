@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -320,6 +321,53 @@ func TestUnknownSecretAndProviderDiagnostics(t *testing.T) {
 	expectCategory(t, err, ProviderUnavailable)
 	if strings.Contains(f.log.String(), "provider-sensitive-diagnostic") {
 		t.Fatal("provider diagnostics leaked")
+	}
+}
+
+type countingNotFoundProvider struct{ calls atomic.Int32 }
+
+func (p *countingNotFoundProvider) Resolve(context.Context, Reference) (string, error) {
+	p.calls.Add(1)
+	return "", SecretNotFound
+}
+
+func TestPolicyDenialPrecedesProviderLookup(t *testing.T) {
+	f := setup(t)
+	provider := &countingNotFoundProvider{}
+	f.broker.provider = provider
+	deniedTLS, err := f.pki.ClientConfig("urn:kredoxi:principal:unauthorized")
+	if err != nil {
+		t.Fatal(err)
+	}
+	denied, err := NewClient(f.broker.Address(), deniedTLS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer denied.Close()
+	_, err = denied.Resolve(context.Background(), examples.Reference)
+	expectCategory(t, err, PolicyDenied)
+	_, err = denied.Resolve(context.Background(), "kredoxi://v1/demo/example/missing")
+	expectCategory(t, err, PolicyDenied)
+	if got := provider.calls.Load(); got != 0 {
+		t.Fatalf("unauthorized reference caused %d provider lookups", got)
+	}
+}
+
+func TestAuthorizedMissingReferenceIsDistinguishable(t *testing.T) {
+	f := setup(t)
+	missing := "kredoxi://v1/demo/example/missing"
+	document := []byte(`{"version":1,"allow":{"urn:kredoxi:principal:demo-consumer":["` + missing + `"]}}`)
+	policy, err := NewPolicy(document, sha256.Sum256(document))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.broker.policy = policy
+	provider := &countingNotFoundProvider{}
+	f.broker.provider = provider
+	_, err = f.client.Resolve(context.Background(), missing)
+	expectCategory(t, err, SecretNotFound)
+	if got := provider.calls.Load(); got != 1 {
+		t.Fatalf("authorized exact reference caused %d provider lookups", got)
 	}
 }
 
