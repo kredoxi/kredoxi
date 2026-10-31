@@ -1,0 +1,65 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Build, test and static analysis
+        run: |
+          go build ./...
+          go test ./...
+          go vet ./...
+          go run ./cmd/demo
+      - name: Race and adversarial fuzz checks
+        if: runner.os == 'Linux'
+        run: |
+          go test -race ./...
+          go test ./internal/resolver -run '^$' -fuzz FuzzReference -fuzztime 5s
+          go test ./internal/resolver -run '^$' -fuzz FuzzRequestJSON -fuzztime 5s
+      - name: Check formatting
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem internal,cmd,examples -Recurse -Filter *.go
+          $unformatted = & gofmt -l $files.FullName
+          if ($LASTEXITCODE -ne 0 -or $unformatted) { throw "gofmt check failed" }
+      - name: Dependency vulnerability check
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+      - name: Build integrity check
+        shell: pwsh
+        run: |
+          go build -trimpath -o demo.bin ./cmd/demo
+          if ($LASTEXITCODE -ne 0) { throw "build failed" }
+          $before = (Get-FileHash demo.bin -Algorithm SHA256).Hash
+          go build -trimpath -o demo-repeat.bin ./cmd/demo
+          if ($LASTEXITCODE -ne 0) { throw "repeat build failed" }
+          if ((Get-FileHash demo-repeat.bin -Algorithm SHA256).Hash -ne $before) { throw "repeat build integrity failed" }
+          Write-Output "Artifact SHA256: $before"
+  governance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Verify and run pinned cARL
+        run: |
+          curl --fail --location --proto '=https' --tlsv1.2 --output carl.tar.gz https://github.com/goldjg/cARL/releases/download/v1.0.2/carl_1.0.2_linux_amd64.tar.gz
+          echo 'd56eee02d6e008c42feb6b5a97ac86ea94599a0440d596bd3be015112d01c264  carl.tar.gz' | sha256sum --check
+          mkdir carl-tools
+          tar -xzf carl.tar.gz -C carl-tools carl
+          carl-tools/carl status
+          carl-tools/carl pack effective
+          carl-tools/carl trace
+          carl-tools/carl harness status
