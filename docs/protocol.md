@@ -88,6 +88,22 @@ context cancellation. Errors from arbitrary providers are converted to bounded
 categories, never forwarded as diagnostic strings. Other formats/providers
 require a future reviewed contract, not silent compatibility assumptions.
 
+## Independent-process demo
+
+`cmd/broker`, `cmd/consumer`, and `cmd/synthetic-service` are separate Go
+commands. `cmd/demo` is a development supervisor that starts each command
+independently and passes bounded, one-line synthetic bootstrap data through
+stdin pipes. Generated keys and credentials remain in process memory; the
+supervisor necessarily holds the synthetic fixture while coordinating the
+demo. The consumer reads `examples/consumer.json`, which contains only the
+reference. Broker resolution still uses the unchanged `/v1/resolve` mTLS API.
+
+The synthetic service is a separate loopback HTTP challenge verifier. The
+consumer sends a one-time HMAC proof, not the credential. This service protocol
+is demonstration-only and is not a production service-authentication design.
+The stdin bootstrap is not OS-native IPC, user enrollment, process attestation,
+or a supported identity boundary. No distinct OS accounts are created or tested.
+
 ## Resource limits
 
 16 live pre-TLS connections, 8 active handler resolutions, 4 KiB header setting,

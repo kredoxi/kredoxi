@@ -1,7 +1,8 @@
 # Current PR Contract
 
 ## Goal
-Implement the user-approved, locally runnable synthetic Kredoxi vertical slice.
+Implement the user-approved, locally runnable synthetic Kredoxi vertical slice
+with independently executing broker, consumer, and synthetic service processes.
 
 ## Contract status
 active
@@ -26,13 +27,21 @@ The execution brief explicitly approves governance configuration and CI.
 Adopt a Go MVP profile retaining all core controls. Platform/cloud packs remain
 installed and selected but inactive unless relevant to a future approved task.
 Installed memory describes upstream cARL, not Kredoxi; reconcile repository truth.
+Extend the existing synthetic demo across process boundaries without changing
+the broker wire protocol or provider-neutral contract. A local demo supervisor
+may bootstrap synthetic certificates and values through process stdin pipes;
+no private keys or credentials are written to files. OS-native IPC, OS-account
+enforcement, and executable identity remain undecided and require a separately
+reviewed Architecture ADR and owner approval.
 
 ## Forbidden scope
 No personal secret-store access, credential harvesting, production secret store,
 privileged host modifications, security-control weakening, release or PR merge.
 
 ## Architectural constraints
-Loopback-only TLS 1.3. URI `kredoxi://v1/demo/example/password`.
+Loopback-only TLS 1.3 between independent broker and consumer processes. The
+separate synthetic service verifies a challenge response. URI
+`kredoxi://v1/demo/example/password`.
 Client certificate URI SAN `urn:kredoxi:principal:demo-consumer`.
 Certificate possession is not executable identity. No external Go modules.
 
@@ -43,13 +52,15 @@ explicit unavailable provider/broker/telemetry errors, no caching in the client.
 Ephemeral private CA and keys stay in memory in the synthetic demo.
 
 ## Files expected to change
-`go.mod`, `internal/`, `cmd/demo/`, `examples/`, `README.md`, `docs/`,
-`ROADMAP.md`, `.gitignore`, `.github/` and installed harness adapters.
+`internal/`, `cmd/`, `examples/`, `README.md`, `docs/`, `ROADMAP.md`, and this
+active contract/plan as needed. Do not modify managed harness adapters or
+unrelated CI/dependency policy.
 
 ## Tests / validation
 `go test ./...`, race detector where C toolchain exists, `go vet ./...`,
 gofmt, `go run ./cmd/demo`, vulnerability scan, cARL status/effective/trace.
-Tests must cover parsing, authentication, policy, failures, leakage and isolation.
+Tests must cover parsing, authentication, policy, independent-process success
+and denial, failures, leakage, lifecycle and isolation.
 
 ## Stop conditions
 Real credentials required; unresolved governance drift; unexpected conflicting

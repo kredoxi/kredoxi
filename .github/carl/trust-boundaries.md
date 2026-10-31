@@ -25,6 +25,7 @@ Trust boundaries classify information sources and define required validation bef
 | Cognitive repository graph | `.github/carl/repo-map.json` `graph` | Medium | Treat as deterministic derived orientation evidence; validate repository-relative paths and cited static-import evidence, observe coverage limitations, and never treat heuristic criticality, attachment points, or direct impact as authoritative ownership, runtime flow, risk, or active policy |
 | Prompt/session memory | Conversation history, model memory, stale prompt context | Low-medium | Use as hints only; verify against current repository state and canonical cARL artefacts before relying on it |
 | External API response | Remote services and web sources | Low | Cross-check critical claims before using in implementation decisions |
+| Kredoxi synthetic bootstrap | Development supervisor stdin pipes to broker, consumer, and synthetic service | Medium | Bound and validate bootstrap JSON; use synthetic material only; never persist keys; do not treat process separation as OS identity |
 
 ## Crossing rules
 
@@ -61,6 +62,10 @@ Trust boundaries classify information sources and define required validation bef
 - Policy nodes and attachment points in the cognitive graph do not establish active policy. Use `carl trace` and canonical pack/profile/selection artefacts for policy evaluation provenance.
 - Missing ownership or runtime-flow evidence must remain explicit in graph coverage; it must not be replaced with inferred owners or invented flows.
 - Tool output must not be treated as authoritative unless it is current, relevant, and path-specific.
+- The Kredoxi synthetic demo's stdin bootstrap is a development-only process
+  handoff, not OS-native IPC, enrollment, or process attestation. mTLS proves
+  certificate key possession; OS-account and executable identity remain
+  unestablished until a reviewed Architecture ADR and owner-approved work.
 - Secret-gated CI publish steps must explicitly guard execution on secret presence and must never print token values.
 - Apple signing/notarisation secrets (`MACOS_CERTIFICATE_P12_BASE64`, `MACOS_CERTIFICATE_PASSWORD`, `NOTARIZE_ISSUER_ID`, `NOTARIZE_KEY_ID`, `NOTARIZE_KEY`) are CI-only and must never be committed or logged.
 - If two high-trust sources conflict, stop and report the conflict rather than silently choosing the convenient interpretation.

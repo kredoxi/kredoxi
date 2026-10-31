@@ -12,8 +12,20 @@
       "purpose": "Go module definition: github.com/kredoxi/kredoxi"
     },
     {
+      "path": "cmd/broker/main.go",
+      "purpose": "broker CLI entry point"
+    },
+    {
+      "path": "cmd/consumer/main.go",
+      "purpose": "consumer CLI entry point"
+    },
+    {
       "path": "cmd/demo/main.go",
       "purpose": "demo CLI entry point"
+    },
+    {
+      "path": "cmd/synthetic-service/main.go",
+      "purpose": "synthetic-service CLI entry point"
     }
   ],
   "directories": {
@@ -31,10 +43,14 @@
     ".github/instructions/platform": "Platform guidance packs",
     ".github/workflows": "GitHub Actions workflows",
     "cmd": "CLI command entry points",
+    "cmd/broker": "",
+    "cmd/consumer": "",
     "cmd/demo": "",
+    "cmd/synthetic-service": "",
     "docs": "Documentation",
     "examples": "Embeds non-secret example configuration for the local demo.",
     "internal": "Internal implementation packages",
+    "internal/devruntime": "",
     "internal/resolver": "Implements a development-only, synthetic credential broker.",
     "internal/synthetic": "Generates ephemeral test credentials, never a production CA."
   },
@@ -251,6 +267,24 @@
         "agent_context": "CLI command entry points"
       },
       {
+        "id": "component:cmd/broker",
+        "kind": "package",
+        "path": "cmd/broker",
+        "criticality": "medium",
+        "trust_boundary": "repository",
+        "policy_attachment_point": true,
+        "agent_context": "Go package at cmd/broker."
+      },
+      {
+        "id": "component:cmd/consumer",
+        "kind": "package",
+        "path": "cmd/consumer",
+        "criticality": "medium",
+        "trust_boundary": "repository",
+        "policy_attachment_point": true,
+        "agent_context": "Go package at cmd/consumer."
+      },
+      {
         "id": "component:cmd/demo",
         "kind": "package",
         "path": "cmd/demo",
@@ -258,6 +292,15 @@
         "trust_boundary": "repository",
         "policy_attachment_point": true,
         "agent_context": "Go package at cmd/demo."
+      },
+      {
+        "id": "component:cmd/synthetic-service",
+        "kind": "package",
+        "path": "cmd/synthetic-service",
+        "criticality": "medium",
+        "trust_boundary": "repository",
+        "policy_attachment_point": true,
+        "agent_context": "Go package at cmd/synthetic-service."
       },
       {
         "id": "component:docs",
@@ -295,6 +338,21 @@
         "agent_context": "Internal implementation packages"
       },
       {
+        "id": "component:internal/devruntime",
+        "kind": "package",
+        "path": "internal/devruntime",
+        "criticality": "medium",
+        "trust_boundary": "repository",
+        "policy_attachment_point": true,
+        "agent_context": "Go package at internal/devruntime.",
+        "change_impact": [
+          "component:cmd/broker",
+          "component:cmd/consumer",
+          "component:cmd/demo",
+          "component:cmd/synthetic-service"
+        ]
+      },
+      {
         "id": "component:internal/resolver",
         "kind": "package",
         "path": "internal/resolver",
@@ -304,6 +362,8 @@
         "policy_attachment_point": true,
         "agent_context": "Implements a development-only, synthetic credential broker.",
         "change_impact": [
+          "component:cmd/broker",
+          "component:cmd/consumer",
           "component:cmd/demo",
           "component:internal/synthetic"
         ]
@@ -318,7 +378,11 @@
         "policy_attachment_point": true,
         "agent_context": "Generates ephemeral test credentials, never a production CA.",
         "change_impact": [
+          "component:cmd/broker",
+          "component:cmd/consumer",
           "component:cmd/demo",
+          "component:cmd/synthetic-service",
+          "component:internal/devruntime",
           "component:internal/resolver"
         ]
       },
@@ -361,6 +425,26 @@
         "agent_context": "Feature roadmap and backlog"
       },
       {
+        "id": "entry_point:cmd/broker/main.go",
+        "kind": "entry-point",
+        "path": "cmd/broker/main.go",
+        "purpose": "broker CLI entry point",
+        "criticality": "high",
+        "trust_boundary": "repository",
+        "policy_attachment_point": false,
+        "agent_context": "broker CLI entry point"
+      },
+      {
+        "id": "entry_point:cmd/consumer/main.go",
+        "kind": "entry-point",
+        "path": "cmd/consumer/main.go",
+        "purpose": "consumer CLI entry point",
+        "criticality": "high",
+        "trust_boundary": "repository",
+        "policy_attachment_point": false,
+        "agent_context": "consumer CLI entry point"
+      },
+      {
         "id": "entry_point:cmd/demo/main.go",
         "kind": "entry-point",
         "path": "cmd/demo/main.go",
@@ -369,6 +453,16 @@
         "trust_boundary": "repository",
         "policy_attachment_point": false,
         "agent_context": "demo CLI entry point"
+      },
+      {
+        "id": "entry_point:cmd/synthetic-service/main.go",
+        "kind": "entry-point",
+        "path": "cmd/synthetic-service/main.go",
+        "purpose": "synthetic-service CLI entry point",
+        "criticality": "high",
+        "trust_boundary": "repository",
+        "policy_attachment_point": false,
+        "agent_context": "synthetic-service CLI entry point"
       },
       {
         "id": "entry_point:go.mod",
@@ -1170,10 +1264,50 @@
       },
       {
         "from": "component:cmd",
+        "to": "component:cmd/broker",
+        "type": "contains",
+        "evidence": [
+          "cmd/broker"
+        ]
+      },
+      {
+        "from": "component:cmd",
+        "to": "component:cmd/consumer",
+        "type": "contains",
+        "evidence": [
+          "cmd/consumer"
+        ]
+      },
+      {
+        "from": "component:cmd",
         "to": "component:cmd/demo",
         "type": "contains",
         "evidence": [
           "cmd/demo"
+        ]
+      },
+      {
+        "from": "component:cmd",
+        "to": "component:cmd/synthetic-service",
+        "type": "contains",
+        "evidence": [
+          "cmd/synthetic-service"
+        ]
+      },
+      {
+        "from": "component:cmd/broker",
+        "to": "entry_point:cmd/broker/main.go",
+        "type": "contains",
+        "evidence": [
+          "cmd/broker/main.go"
+        ]
+      },
+      {
+        "from": "component:cmd/consumer",
+        "to": "entry_point:cmd/consumer/main.go",
+        "type": "contains",
+        "evidence": [
+          "cmd/consumer/main.go"
         ]
       },
       {
@@ -1182,6 +1316,22 @@
         "type": "contains",
         "evidence": [
           "cmd/demo/main.go"
+        ]
+      },
+      {
+        "from": "component:cmd/synthetic-service",
+        "to": "entry_point:cmd/synthetic-service/main.go",
+        "type": "contains",
+        "evidence": [
+          "cmd/synthetic-service/main.go"
+        ]
+      },
+      {
+        "from": "component:internal",
+        "to": "component:internal/devruntime",
+        "type": "contains",
+        "evidence": [
+          "internal/devruntime"
         ]
       },
       {
@@ -1297,8 +1447,64 @@
         ]
       },
       {
+        "from": "component:cmd/broker",
+        "to": "component:internal/devruntime",
+        "type": "depends_on",
+        "evidence": [
+          "cmd/broker/main.go"
+        ]
+      },
+      {
+        "from": "component:cmd/broker",
+        "to": "component:internal/resolver",
+        "type": "depends_on",
+        "evidence": [
+          "cmd/broker/main.go"
+        ]
+      },
+      {
+        "from": "component:cmd/broker",
+        "to": "component:internal/synthetic",
+        "type": "depends_on",
+        "evidence": [
+          "cmd/broker/main.go"
+        ]
+      },
+      {
+        "from": "component:cmd/consumer",
+        "to": "component:internal/devruntime",
+        "type": "depends_on",
+        "evidence": [
+          "cmd/consumer/main.go"
+        ]
+      },
+      {
+        "from": "component:cmd/consumer",
+        "to": "component:internal/resolver",
+        "type": "depends_on",
+        "evidence": [
+          "cmd/consumer/main.go"
+        ]
+      },
+      {
+        "from": "component:cmd/consumer",
+        "to": "component:internal/synthetic",
+        "type": "depends_on",
+        "evidence": [
+          "cmd/consumer/main.go"
+        ]
+      },
+      {
         "from": "component:cmd/demo",
         "to": "component:examples",
+        "type": "depends_on",
+        "evidence": [
+          "cmd/demo/main.go"
+        ]
+      },
+      {
+        "from": "component:cmd/demo",
+        "to": "component:internal/devruntime",
         "type": "depends_on",
         "evidence": [
           "cmd/demo/main.go"
@@ -1318,6 +1524,30 @@
         "type": "depends_on",
         "evidence": [
           "cmd/demo/main.go"
+        ]
+      },
+      {
+        "from": "component:cmd/synthetic-service",
+        "to": "component:internal/devruntime",
+        "type": "depends_on",
+        "evidence": [
+          "cmd/synthetic-service/main.go"
+        ]
+      },
+      {
+        "from": "component:cmd/synthetic-service",
+        "to": "component:internal/synthetic",
+        "type": "depends_on",
+        "evidence": [
+          "cmd/synthetic-service/main.go"
+        ]
+      },
+      {
+        "from": "component:internal/devruntime",
+        "to": "component:internal/synthetic",
+        "type": "depends_on",
+        "evidence": [
+          "internal/devruntime/bootstrap.go"
         ]
       },
       {

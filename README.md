@@ -25,14 +25,17 @@ go run ./cmd/demo
 ```
 
 The demo generates random credentials, an ephemeral private CA and short-lived
-client/server keys **in memory**. It embeds the original
+client/server keys **in memory**. Its supervisor starts the broker, consumer and
+synthetic service as independent Go command processes and passes bootstrap
+material through bounded stdin pipes; no credentials or private keys are written
+to files. It embeds the original
 [consumer configuration](examples/consumer.json), which contains only
 `kredoxi://v1/demo/example/password`. It starts a loopback TLS 1.3 broker,
 authenticates a consumer certificate, authorizes the reference and demonstrates
 credential use through an HMAC challenge verified by a synthetic service.
-An independently enrolled unauthorized caller is denied; unavailable provider
-and stopped broker produce explicit failures. The executable exits nonzero if
-any expected result differs.
+An independently executing unauthorized consumer is denied before provider
+lookup; provider outage, broker shutdown, restart and telemetry redaction are
+checked. The executable exits nonzero if any expected result differs.
 
 JSON-line security events go to stdout; fixed demonstration messages go to
 stderr. No resolved credential is printed. No environment, browser, local vault,
@@ -42,10 +45,11 @@ personal key store or cloud account is read by the demo.
 
 This is an **explicit Go resolution API**, not automatic substitution when an
 arbitrary application reads `.env` or JSON. A consumer must integrate
-`Client.Resolve(ctx, reference)` or `Consume`. The demonstration hosts the broker,
-consumer and service in one executable and uses real authenticated TLS requests;
-it does not prove cross-process enrollment or OS identity enforcement.
-Certificate possession is key-holder identity, **not executable identity**.
+`Client.Resolve(ctx, reference)` or `Consume`. The demonstration uses real
+authenticated TLS requests between separate broker and consumer processes.
+Its development supervisor bootstraps synthetic material through stdin; this
+is not an enrollment mechanism. Process separation and certificate possession
+do not establish OS-account or executable identity.
 
 See the accepted [Architecture ADR 0001](https://github.com/kredoxi/architecture/blob/main/docs/adr/0001-explicit-local-resolution.md),
 [protocol](docs/protocol.md), [implementation decision](docs/adr-0001.md),
@@ -66,7 +70,9 @@ The race detector needs cgo and a C compiler (available in the Linux CI runner,
 not this initial Windows validation host). The vulnerability scanner is pinned
 validation tooling, not a runtime dependency.
 
-CI builds/tests on Linux and Windows, runs Linux race/fuzz tests, checks
+`go build ./...` builds the broker, consumer, synthetic-service and demo
+commands independently. CI builds/tests on Linux and Windows, runs Linux
+race/fuzz tests, checks
 formatting, scans vulnerabilities, checks artifact integrity and validates cARL
 with a SHA-256-verified v1.0.2 binary. It has a read-only token, no publishing
 steps and no production secrets. Branch/ruleset enforcement is administered

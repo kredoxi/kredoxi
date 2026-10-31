@@ -191,23 +191,43 @@ type SyntheticProvider struct {
 }
 
 func NewSyntheticProvider(references []string) (*SyntheticProvider, error) {
-	provider := &SyntheticProvider{values: make(map[string]string), available: true}
 	if len(references) > 64 {
 		return nil, InvalidReference
 	}
+	values := make(map[string]string, len(references))
 	for _, text := range references {
 		ref, err := ParseReference(text)
 		if err != nil {
 			return nil, err
 		}
-		if _, exists := provider.values[ref.String()]; exists {
+		if _, exists := values[ref.String()]; exists {
 			return nil, InvalidReference
 		}
 		value := make([]byte, 32)
 		if _, err := rand.Read(value); err != nil {
 			return nil, InternalFailure
 		}
-		provider.values[ref.String()] = hex.EncodeToString(value)
+		values[ref.String()] = hex.EncodeToString(value)
+	}
+	return NewSyntheticProviderWithValues(values)
+}
+
+// NewSyntheticProviderWithValues injects only development-generated values,
+// allowing separate demo processes to receive the same ephemeral fixture.
+func NewSyntheticProviderWithValues(values map[string]string) (*SyntheticProvider, error) {
+	if len(values) > 64 {
+		return nil, InvalidReference
+	}
+	provider := &SyntheticProvider{values: make(map[string]string, len(values)), available: true}
+	for text, value := range values {
+		ref, err := ParseReference(text)
+		if err != nil || len(value) != 64 {
+			return nil, InvalidReference
+		}
+		if _, err := hex.DecodeString(value); err != nil {
+			return nil, InvalidReference
+		}
+		provider.values[ref.String()] = value
 	}
 	return provider, nil
 }

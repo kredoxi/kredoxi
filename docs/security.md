@@ -5,7 +5,7 @@
 | Tier | Demonstrated boundary | Not protected |
 |---|---|---|
 | 1: passive configuration/source theft | Consumer config holds only non-secret reference; generated fixture absent from source | Reference metadata; attacker with other runtime authorization |
-| 2: unprivileged local compromise | Arbitrary TLS caller cannot resolve without enrolled CA key + exact policy; loopback encrypts response | Same-user private-key/memory theft, caller compromise, connection starvation |
+| 2: unprivileged local compromise | Arbitrary TLS caller cannot resolve without enrolled CA key + exact policy; loopback encrypts response | A stolen authorized client key can impersonate its certificate principal; same-user memory theft, caller compromise, connection starvation |
 | 3: authorized application compromise | Policy constrains accessible references | Authorized credential exfiltration; test deliberately captures value in consumer callback |
 | 4: privileged host compromise | No prevention claim | Root/admin memory reads, binary/policy replacement, hooks, termination, audit deletion |
 
@@ -16,9 +16,11 @@ review and scanning reduce risk but are not runtime integrity enforcement.
 
 ## Reproducible evidence
 
-`go run ./cmd/demo` checks service challenge success, authenticated policy denial,
-unavailable provider and broker shutdown. Tests cover strict malformed/traversal/
-Unicode/encoded references, JSON framing/type/duplicate/case/unknown-field abuse,
+`go run ./cmd/demo` starts separate broker, consumer and synthetic-service Go
+processes, and checks service challenge success, authenticated policy denial,
+provider outage, broker shutdown/restart, and telemetry redaction. Tests cover
+policy denial before provider lookup, authorized `secret_not_found`, strict
+malformed/traversal/Unicode/encoded references, JSON framing/type/duplicate/case/unknown-field abuse,
 foreign CA, absent certificate, URI claim mismatch and TLS downgrade, policy
 pin tampering/immutability, absent secret, provider-diagnostic redaction,
 sticky audit/short-write failure, canceled calls, repeated application requests, client
@@ -51,7 +53,8 @@ which correctly changes the next binary hash. VCS provenance is not disabled.
 
 ## Remaining attack surfaces
 
-No interception, OS peer/process attestation, key enrollment/persistence,
+No interception, OS peer/process attestation, OS-account enforcement,
+production key enrollment/persistence,
 production secret provider, TTL/rotation/cache, revocation service, policy
 signature/antirollback, binary integrity watcher, privileged tamper prevention,
 locked memory, reliable zeroization, crash-dump prevention or protected event log.
@@ -60,6 +63,9 @@ compiled pin and policy together. Events cannot be emitted after SIGKILL or
 privileged termination; stopped-broker detection is a client transport failure,
 not an independently supervised health monitor.
 
+No credential or private key is written by the demo; bootstrap transfers
+synthetic material over stdin pipes and the supervisor also holds it in memory.
+This does not protect against a compromised supervisor or same-user process.
 No secret-bearing filesystem reads/writes means vault symlink/TOCTOU races
 are not implemented paths. Embedded source config and build inputs remain
 under ordinary repository/toolchain permissions; no secure-file-I/O claim.
