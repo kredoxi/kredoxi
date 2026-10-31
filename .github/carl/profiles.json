@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "defaults": {"organization": [], "repository": []},
+  "profiles": [{
+    "id": "go-mvp",
+    "description": "All core governance plus Go, PowerShell tooling and CI; cloud and interception stacks are not in this MVP.",
+    "packs": [
+      "core/baseline", "core/carl", "core/cognition-governance",
+      "core/dependency", "core/identity", "core/memory-cache",
+      "core/pr-contract", "core/security", "core/tool-permission-tiers",
+      "languages/go", "languages/powershell", "platform/cicd"
+    ]
+  }],
+  "active": {"profile": "go-mvp"}
+}
