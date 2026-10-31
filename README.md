@@ -1,7 +1,7 @@
 # Kredoxi synthetic MVP
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/kredoxi/.github/main/logos/kredoxi_logo_optimized.png" alt="Kredoxi wordmark" width="320">
+  <img src="https://raw.githubusercontent.com/kredoxi/.github/main/logos/kredoxi_logo_optimized.png" alt="Kredoxi — Steal the config. Not the secret." width="240">
 </p>
 
 <p align="center"><a href="https://github.com/kredoxi/.github/tree/main/logos">Canonical brand assets</a></p>
@@ -47,7 +47,8 @@ consumer and service in one executable and uses real authenticated TLS requests;
 it does not prove cross-process enrollment or OS identity enforcement.
 Certificate possession is key-holder identity, **not executable identity**.
 
-See [protocol](docs/protocol.md), [architecture decision](docs/adr-0001.md),
+See the accepted [Architecture ADR 0001](https://github.com/kredoxi/architecture/blob/main/docs/adr/0001-explicit-local-resolution.md),
+[protocol](docs/protocol.md), [implementation decision](docs/adr-0001.md),
 [security evidence and limitations](docs/security.md) and [roadmap](ROADMAP.md).
 
 ## Validation
