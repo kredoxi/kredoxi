@@ -8,6 +8,7 @@ permissions:
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
@@ -41,12 +42,14 @@ jobs:
       - name: Build integrity check
         shell: pwsh
         run: |
-          go build -trimpath -o demo.bin ./cmd/demo
+          $first = Join-Path $env:RUNNER_TEMP 'kredoxi-demo-first.bin'
+          $second = Join-Path $env:RUNNER_TEMP 'kredoxi-demo-repeat.bin'
+          go build -trimpath -o $first ./cmd/demo
           if ($LASTEXITCODE -ne 0) { throw "build failed" }
-          $before = (Get-FileHash demo.bin -Algorithm SHA256).Hash
-          go build -trimpath -o demo-repeat.bin ./cmd/demo
+          $before = (Get-FileHash $first -Algorithm SHA256).Hash
+          go build -trimpath -o $second ./cmd/demo
           if ($LASTEXITCODE -ne 0) { throw "repeat build failed" }
-          if ((Get-FileHash demo-repeat.bin -Algorithm SHA256).Hash -ne $before) { throw "repeat build integrity failed" }
+          if ((Get-FileHash $second -Algorithm SHA256).Hash -ne $before) { throw "repeat build integrity failed" }
           Write-Output "Artifact SHA256: $before"
   governance:
     runs-on: ubuntu-latest

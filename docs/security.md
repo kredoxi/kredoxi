@@ -43,6 +43,9 @@ Read-only security-review agent found no code vulnerabilities in the initial
 implementation review. This is review evidence, not a security certification.
 Local race attempt failed because cgo/gcc is absent; Linux CI runs it as a
 mandatory gate. CI results and final fuzz evidence belong in the PR.
+Repeat-build verification writes binaries outside the checkout: writing an
+untracked output into the source tree changes Go's stamped VCS dirty status,
+which correctly changes the next binary hash. VCS provenance is not disabled.
 
 ## Remaining attack surfaces
 
