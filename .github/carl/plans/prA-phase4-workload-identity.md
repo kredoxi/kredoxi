@@ -186,6 +186,24 @@ CI attempt remains the reproduction evidence.
 - The first Linux run at final documentation head failed the unrelated
   supervisor test; retry attempt 2 passed. Treat the first failure as a
   synchronization defect, not as irrelevant merely because the retry passed.
+- Narrow maintenance commits: `42d682c` records the owner-approved contract
+  amendment before code changes; `6673f2b96409c8ee099fa5644ea5510975eec7b8`
+  is the distinct test-only correction.
+- Correction: the child test helper now includes the listener address in its
+  newline-terminated stderr readiness record; `startCommand` returns that
+  address only after the stderr line reader processes the complete record.
+  The supervisor then reports that returned address rather than snapshotting
+  its independently drained stdout capture. The outer assertion waits for a
+  complete newline-terminated diagnostic line and validates exactly the
+  expected two fields. A regression test verifies that partial diagnostic
+  bytes do not count as a complete line.
+- Validation on the correction head: Windows local
+  `go test ./cmd/demo -run '^(TestSupervisorTerminationContainsOwnedChild|TestFindCompleteOutputLineWaitsForNewline)$' -count=100`,
+  `go test ./...`, `go vet ./...`, and `go build ./...` passed. Native PR CI
+  run `41345332463` passed Ubuntu and Windows test jobs and governance; Ubuntu
+  executed `go test -race ./...`. cARL CLI/runtime 1.0.2 status, pack
+  effective, trace, and harness checks were healthy. A local race run was not
+  available because the Windows environment has `CGO_ENABLED=0`.
 - Three-identity endpoint access remains blocked and unverified: current Linux
   evidence lacks an authorized distinct consumer UID that can connect while
   being unable to replace the endpoint. Do not simulate this scenario or claim
