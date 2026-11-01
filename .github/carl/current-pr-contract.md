@@ -28,7 +28,8 @@ mTLS key reuse. Run native Windows checks only within the current unprivileged
 identity; run Linux distinct-UID checks only through an already-existing
 account on an authorized disposable runner. Do not provision accounts or
 services. Update this contract and the task-scoped Phase 4 plan. Create a
-separate Core PR A after validation and leave it open and unmerged.
+separate Core PR A after validation and leave it open unless a separate,
+explicit owner-approved controlled-merge amendment is recorded in this contract.
 
 Update CI only if the existing native Linux/Windows jobs do not exercise the
 new tests. Do not add privileged account provisioning to CI.
@@ -48,9 +49,13 @@ authorize simulation or weaken its acceptance criteria.
 ## Intentional amendments
 This contract supersedes the completed native-IPC/PR #5 task contract for new
 work on this branch. Core PR #5 is already merged at `0c465c56a6732265bdad8ec3eba143a11b2a9895`;
-its conditional merge authorization has expired and does not authorize merging
-this PR A. This phase is research-only; its report may inform Architecture PR B
-but does not decide the architecture.
+its conditional merge authorization does not itself authorize merging this PR
+A. The owner has now explicitly authorized merging Core PR #6 first, followed
+by Architecture PR #5 only after Core's merge and healthy default-branch CI.
+This active contract amendment covers the Core PR #6 stage only; it does not
+authorize editing or merging Architecture PR #5. This phase remains
+research-only; its report may inform Architecture PR B but does not decide the
+architecture.
 
 ## Forbidden scope
 No production changes to `internal/`, `cmd/`, `examples/`, protocol, or
@@ -58,9 +63,9 @@ telemetry; no edits to Architecture; no user or service-account creation,
 privilege elevation, machine/network/security setting changes, drivers,
 real/paid infrastructure, credentials, or privileged tests. Do not test on
 the owner's workstation or Gaia when a scenario needs account provisioning or
-privileged access. No automatic fallback, plaintext transport, merge, or
-unsupported security claims. A configured control is not evidence that the
-control blocked an attacker.
+privileged access. No automatic fallback, plaintext transport, automatic
+merge, or unsupported security claims. A configured control is not evidence
+that the control blocked an attacker.
 
 The test-only exception above is limited to `cmd/demo/main_test.go`; all
 production source under `cmd/demo/` remains forbidden.
@@ -139,7 +144,29 @@ ADR acceptance, or claim beyond observed evidence.
    delivered by the stderr readiness protocol and a complete stdout diagnostic
    line; neither assertion can race an independent pipe reader.
 
+## Owner-approved Core #6 controlled-merge amendment
+The owner explicitly authorized “both merges in that sequence” and directed
+that “Core #6 is ready for controlled merge as partial experimental research,
+with the unverified three-identity model explicitly retained as outstanding.”
+This amendment authorizes only the Core #6 merge stage. Before merging, verify
+the current PR/head/base and exact diff; confirm the PR is open, non-draft,
+mergeable, not queued, without auto-merge, and has no unresolved review threads;
+confirm all required branch-protection checks (`test (ubuntu-latest)`,
+`test (windows-latest)`, and `governance`) succeeded on the exact current head;
+and rerun cARL governance validation. Do not bypass branch protection. Pin the
+merge to the verified head SHA and use the repository's previously observed
+merge-commit strategy. Afterward verify the PR merge commit, updated `main`
+SHA, and successful native Linux, Windows, and governance checks on that exact
+default-branch commit. Stop if any gate is missing or fails.
+
+The three-identity authorized-consumer Linux case remains blocked and
+unverified; do not imply that Core #6 proves a deployable identity boundary.
+ADR 0002 remains Proposed. No production transport, architecture, or
+Architecture-repository changes are authorized by this amendment. Do not edit
+or merge Architecture PR #5 in this Core assignment.
+
 ## Context reset
-Keep this contract active through Core PR A review. Leave PR A open and
-unmerged. Architecture PR B is separately coordinated and out of scope.
-ADR 0002 remains Proposed.
+Keep this contract active through the Core #6 controlled merge and
+post-merge default-branch validation, then close or supersede it. Architecture
+PR #5 is separately coordinated and must wait for the verified Core merge and
+healthy default-branch CI. ADR 0002 remains Proposed.

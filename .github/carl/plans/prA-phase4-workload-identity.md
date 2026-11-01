@@ -81,8 +81,8 @@ governance packs plus Go, PowerShell, and CI/CD.
    Windows jobs; do not modify CI unless the new tests are not included. Do not
    add privileged/account-provisioning steps to CI.
 9. Run cARL checks and relevant Go tests/static analysis. Open a separate Core
-   PR A after validation, leave it open/unmerged, and hand the evidence to the
-   coordinator for Architecture PR B.
+   PR A after validation, leave it open pending review, and hand the evidence
+   to the coordinator for Architecture PR B.
 
 ## Contract assertions
 
@@ -209,6 +209,27 @@ CI attempt remains the reproduction evidence.
   being unable to replace the endpoint. Do not simulate this scenario or claim
   a deployable identity boundary from the existing broker-owned `0700` parent
   test.
+
+## Owner-approved Core #6 controlled-merge amendment
+
+The owner explicitly authorized the two PRs to merge in sequence and approved
+Core #6 as partial experimental research, with the three-identity Linux model
+retained as outstanding. This task executes only the Core #6 stage; Architecture
+#5 must remain untouched until the Core merge and healthy default-branch CI are
+verified.
+
+Merge Core #6 only if it remains open, non-draft, mergeable, not queued, and
+without auto-merge or unresolved review threads; its exact current head has
+successful required Ubuntu, Windows, and governance checks; branch protection
+permits the action; and the active cARL checks pass. Use the already observed
+merge-commit strategy, pinned to the verified head SHA, without bypassing
+protection. After merging, verify the merge commit, resulting `main` SHA, and
+native Linux, Windows, and governance checks for that exact default-branch
+commit. Stop rather than weakening a gate.
+
+The three-identity authorized-consumer Linux experiment remains blocked and
+unverified. This amendment does not imply a deployable identity boundary,
+accept ADR 0002, or authorize production transport or Architecture changes.
 
 ## Stop conditions
 
