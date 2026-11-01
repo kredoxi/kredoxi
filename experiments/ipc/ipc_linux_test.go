@@ -52,6 +52,28 @@ type linuxEndpoint struct {
 func runNativeIPCHelper(t *testing.T) {
 	t.Helper()
 	path := os.Getenv("KREDOXI_IPC_ENDPOINT")
+	if operation := os.Getenv("KREDOXI_IPC_TEST_OPERATION"); operation != "" {
+		expectedUID := os.Getenv("KREDOXI_IPC_EXPECTED_UID")
+		if expectedUID == "" || expectedUID != strconv.Itoa(os.Getuid()) {
+			t.Fatal("filesystem helper did not run under the expected distinct UID")
+		}
+		var err error
+		switch operation {
+		case "rename_endpoint":
+			err = os.Rename(path, os.Getenv("KREDOXI_IPC_RENAME_TARGET"))
+		case "unlink_endpoint":
+			err = os.Remove(path)
+		default:
+			t.Fatal("unknown filesystem experiment operation")
+		}
+		if !errors.Is(err, syscall.EACCES) && !errors.Is(err, syscall.EPERM) {
+			t.Fatal("different UID was not denied access to the broker endpoint namespace")
+		}
+		if _, err := fmt.Fprintln(os.Stdout, "ipc-helper:native=endpoint_operation_denied"); err != nil {
+			t.Fatal("could not report endpoint namespace denial")
+		}
+		return
+	}
 	reference := os.Getenv("KREDOXI_IPC_REFERENCE")
 	if reference == "" {
 		reference = testReference
@@ -493,6 +515,39 @@ func TestLinuxDifferentUIDBlockedBySocketMode(t *testing.T) {
 	}
 }
 
+func TestLinuxDifferentUIDCannotReplaceBrokerEndpoint(t *testing.T) {
+	sudo, otherUID := availableNobodyUID(t)
+	harness := newLinuxHarness(t, 0700, 0666)
+	directoryInfo, err := os.Stat(filepath.Dir(harness.endpoint.path))
+	if err != nil {
+		t.Fatal("could not inspect broker endpoint directory")
+	}
+	directoryStat, ok := directoryInfo.Sys().(*syscall.Stat_t)
+	if !ok || directoryInfo.Mode().Perm() != 0700 || directoryStat.Uid != uint32(os.Getuid()) {
+		t.Fatal("broker endpoint directory was not private and owned by the broker account")
+	}
+	socketInfo, err := os.Lstat(harness.endpoint.path)
+	if err != nil || socketInfo.Mode().Perm() != 0666 {
+		t.Fatal("test endpoint did not have the expected deliberately broad socket mode")
+	}
+
+	for _, operation := range []string{"rename_endpoint", "unlink_endpoint"} {
+		result := runHelperAsNobody(t, sudo, "native", map[string]string{
+			"KREDOXI_IPC_ENDPOINT":       harness.endpoint.path,
+			"KREDOXI_IPC_TEST_OPERATION": operation,
+			"KREDOXI_IPC_EXPECTED_UID":   strconv.FormatUint(uint64(otherUID), 10),
+			"KREDOXI_IPC_RENAME_TARGET":  harness.endpoint.path + ".substituted",
+		}, nil)
+		if result.err != nil || !strings.Contains(result.stdout, "ipc-helper:native=endpoint_operation_denied") {
+			t.Fatal("different UID was not denied endpoint replacement by the broker-owned directory")
+		}
+	}
+	current, err := os.Lstat(harness.endpoint.path)
+	if err != nil || !os.SameFile(socketInfo, current) {
+		t.Fatal("unrelated UID changed the broker endpoint")
+	}
+}
+
 func TestLinuxDistinctUIDDeniedByKernelAndPolicy(t *testing.T) {
 	sudo, otherUID := availableNobodyUID(t)
 	harness := newLinuxHarness(t, 0711, 0666)
@@ -514,6 +569,68 @@ func TestLinuxDistinctUIDDeniedByKernelAndPolicy(t *testing.T) {
 	if got := harness.broker.lookups.Load(); got != 0 {
 		t.Fatal("distinct UID denial reached the provider")
 	}
+}
+
+func TestLinuxClientAcceptsSyntheticFakeBroker(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "fake-broker.sock")
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
+	if err != nil {
+		t.Fatal("could not create synthetic fake-broker endpoint")
+	}
+	defer listener.Close()
+
+	value, err := randomSyntheticValue()
+	if err != nil {
+		t.Fatal("could not create a synthetic fake-broker response")
+	}
+	type observation struct {
+		peer    linuxPeer
+		request request
+		raw     []byte
+		err     error
+	}
+	observed := make(chan observation, 1)
+	go func() {
+		connection, acceptErr := listener.AcceptUnix()
+		if acceptErr != nil {
+			observed <- observation{err: acceptErr}
+			return
+		}
+		defer connection.Close()
+		peer, peerErr := linuxPeerCredentials(connection)
+		raw, readErr := io.ReadAll(io.LimitReader(connection, maxRequestBytes+1))
+		input, parseErr := parseRequest(raw)
+		result := observation{peer: peer, request: input, raw: raw, err: errors.Join(peerErr, readErr, parseErr)}
+		if result.err == nil && len(raw) <= maxRequestBytes {
+			result.err = json.NewEncoder(connection).Encode(reply{Status: "resolved", Value: value})
+		}
+		observed <- result
+	}()
+
+	result := runHelper(t, "native", map[string]string{
+		"KREDOXI_IPC_ENDPOINT":        path,
+		"KREDOXI_IPC_EXPECTED_DIGEST": syntheticValueDigest(value),
+	}, nil)
+	if result.err != nil || !strings.Contains(result.stdout, "ipc-helper:native=resolved") {
+		t.Fatal("client did not accept the fake endpoint's synthetic response")
+	}
+	select {
+	case evidence := <-observed:
+		if evidence.err != nil || evidence.peer.uid != uint32(os.Getuid()) ||
+			evidence.request.Reference != testReference ||
+			evidence.request.ClaimedPrincipal != "uid:0" ||
+			evidence.request.ClaimedUID != 0 || evidence.request.ClaimedPID != 1 {
+			t.Fatal("fake endpoint did not observe the expected request and kernel peer identity")
+		}
+		if bytes.Contains(evidence.raw, []byte(value)) ||
+			bytes.Contains(evidence.raw, []byte("private_key")) {
+			t.Fatal("client request exposed synthetic response or private-key material")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("fake endpoint did not receive the client request")
+	}
+	assertOutputDoesNotContain(t, result.stdout+result.stderr, []byte(value))
 }
 
 func TestLinuxCopiedSyntheticMTLSKeyWorksFromDifferentUID(t *testing.T) {
