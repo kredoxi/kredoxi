@@ -16,11 +16,11 @@ go test ./experiments/ipc -count=1 -v
 go test ./experiments/ipc -count=1 -v
 ```
 
-The repository CI also runs `go test ./...` on native Ubuntu and Windows
-runners. Linux's optional distinct-UID cases use only the already-existing
-`nobody` account and skip with a reason when passwordless `sudo` is unavailable.
-They do not create or modify accounts. No Windows second-account or remote-host
-test is simulated.
+The repository CI also runs the experiment verbosely and `go test ./...` on
+native Ubuntu and Windows runners. Linux's optional distinct-UID cases use only
+the already-existing `nobody` account and skip with a reason when passwordless
+`sudo` is unavailable. They do not create or modify accounts. No Windows
+second-account or remote-host test is simulated.
 
 ## What the experiment measures
 
@@ -74,15 +74,23 @@ so denial of a different SID by the DACL is likewise unmeasured.
 
 ## Observations from this run
 
-Environment: Windows NT 10.0.26300.0, Go 1.27.3, `windows/amd64`. Native
-experiment tests and the full repository test suite passed; `go build ./...`,
-`go vet ./...`, and `govulncheck` passed, with no known vulnerabilities
-reported. The native Windows remote-host denial and different-account cases
-were not run because no separate authorized Windows host/account was available.
-Native Linux execution is pending the repository's Ubuntu CI runner; a Linux
-cross-compile succeeded but is not counted as evidence. The Windows race test
-was not run: this host has `CGO_ENABLED=0` and no GCC, and `go test -race`
-requires cgo here.
+Local environment: Windows NT 10.0.26300.0, Go 1.27.3, `windows/amd64`.
+Native experiment tests and the full repository test suite passed;
+`go build ./...`, `go vet ./...`, and `govulncheck` passed, with no known
+vulnerabilities reported. The native Windows remote-host denial and
+different-account cases were not run because no separate authorized Windows
+host/account was available.
+
+Native CI evidence: [GitHub Actions run 41329082490](https://github.com/kredoxi/kredoxi/actions/runs/41329082490),
+using Go 1.27.3 on `ubuntu-latest` and `windows-latest`, passed both OS jobs and
+the governance job. On Linux, every experiment test passed, including the
+existing-`nobody` cross-UID socket-permission denial, `SO_PEERCRED` policy
+denial, and copied-key mTLS use; none of those tests skipped. Linux
+`go test -race ./...` and both five-second resolver fuzz runs also passed. On
+Windows, the native experiment tests passed and the remote-host denial test
+explicitly skipped because no separate authorized Windows host was available.
+A Windows race test was not run locally: this host has `CGO_ENABLED=0` and no
+GCC, and `go test -race` requires cgo here.
 
 ## Scenario-level results
 
@@ -94,17 +102,17 @@ skip on CI if the runner does not permit passwordless switching to its existing
 
 | Scenario | Expected | Observed | Residual risk |
 |---|---|---|---|
-| Common malformed/duplicate/oversized request and policy order | Reject malformed input; deny unauthorized references before provider lookup; authorized missing reference yields `secret_not_found`. | Passed on native Windows. | Does not validate the production wire protocol; experiment only. |
-| Separate same-account process, Linux pathname socket | Kernel peer UID/GID/PID identify the helper; exact policy resolves. | Pending native Linux CI. | Same-UID code can connect; peer credentials do not attest executable integrity. |
-| Socket directory/endpoint ownership and modes | Parent is `0700`, socket is `0600`, and socket owner is the creating UID. | Pending native Linux CI. | These are experiment setup values, not a deployment guarantee. |
-| Linux peer-field spoofing | False UID/PID/principal fields do not change kernel identity or policy. | Pending native Linux CI. | OS account identity does not identify trusted code. |
-| Linux pre-created/stale endpoint | Startup refuses existing paths without overwriting or unlinking them. | Pending native Linux CI. | Same-account actors can still alter accessible parent directories. |
-| Linux same-account endpoint substitution | A same-account actor can replace the pathname endpoint and receive clients that follow it. | Pending native Linux CI. | Pathname lookup is not protected from a process with directory write access. |
-| Linux socket permission across distinct UIDs | With a traversable `0711` parent and `0600` socket, the other UID cannot connect. | Pending native Linux CI; test skips if the runner lacks noninteractive `sudo`. | File modes protect the endpoint only while its directory and owner remain trusted. |
-| Linux exact-UID policy across distinct UIDs | With `0666` socket access, real `SO_PEERCRED` UID is denied before lookup. | Pending native Linux CI; same runner prerequisite as the socket-permission case. | This proves account policy in the tested setup, not executable integrity. |
-| Linux copied mTLS key under distinct UID | A process given the copied synthetic key can use the mTLS baseline independently of its OS UID. | Pending native Linux CI; same runner prerequisite as the distinct-UID cases. | Key custody, not OS UID, controls mTLS key reuse. |
-| Linux concurrent authorized and denied requests | All results match exact policy; only authorized requests reach the provider. | Pending native Linux CI. | Does not validate arbitrary provider cancellation or preemption. |
-| Linux client disconnect | An incomplete request is rejected without provider lookup and does not stop the broker. | Pending native Linux CI. | Abrupt disconnect behavior is limited to this framed test protocol. |
+| Common malformed/duplicate/oversized request and policy order | Reject malformed input; deny unauthorized references before provider lookup; authorized missing reference yields `secret_not_found`. | Passed on native Windows and Linux CI run 41329082490. | Does not validate the production wire protocol; experiment only. |
+| Separate same-account process, Linux pathname socket | Kernel peer UID/GID/PID identify the helper; exact policy resolves. | Passed on native Linux CI run 41329082490. | Same-UID code can connect; peer credentials do not attest executable integrity. |
+| Socket directory/endpoint ownership and modes | Parent is `0700`, socket is `0600`, and socket owner is the creating UID. | Passed on native Linux CI run 41329082490. | These are experiment setup values, not a deployment guarantee. |
+| Linux peer-field spoofing | False UID/PID/principal fields do not change kernel identity or policy. | Passed on native Linux CI run 41329082490. | OS account identity does not identify trusted code. |
+| Linux pre-created/stale endpoint | Startup refuses existing paths without overwriting or unlinking them. | Passed on native Linux CI run 41329082490. | Same-account actors can still alter accessible parent directories. |
+| Linux same-account endpoint substitution | A same-account actor can replace the pathname endpoint and receive clients that follow it. | Passed on native Linux CI run 41329082490. | Pathname lookup is not protected from a process with directory write access. |
+| Linux socket permission across distinct UIDs | With a traversable `0711` parent and `0600` socket, the other UID cannot connect. | Passed on native Linux CI run 41329082490 using existing `nobody`; no skip. | File modes protect the endpoint only while its directory and owner remain trusted. |
+| Linux exact-UID policy across distinct UIDs | With `0666` socket access, real `SO_PEERCRED` UID is denied before lookup. | Passed on native Linux CI run 41329082490 using existing `nobody`; no skip. | This proves account policy in the tested setup, not executable integrity. |
+| Linux copied mTLS key under distinct UID | A process given the copied synthetic key can use the mTLS baseline independently of its OS UID. | Passed on native Linux CI run 41329082490 using existing `nobody`; no skip. | Key custody, not OS UID, controls mTLS key reuse. |
+| Linux concurrent authorized and denied requests | All results match exact policy; only authorized requests reach the provider. | Passed on native Linux CI run 41329082490. | Does not validate arbitrary provider cancellation or preemption. |
+| Linux client disconnect | An incomplete request is rejected without provider lookup and does not stop the broker. | Passed on native Linux CI run 41329082490. | Abrupt disconnect behavior is limited to this framed test protocol. |
 | Windows named pipe DACL and same-account process | Explicit current-SID DACL permits a same-SID helper; OS token SID is observed despite false fields. | Passed on native Windows. Different-SID denial was not measured. | DACL configuration is not executable identity; another process under the allowed SID can connect. |
 | Windows impersonation failure | Invalid client handle fails closed with no provider lookup and no broker-token change. | Passed on native Windows. | A real OS-level impersonation failure mode beyond the invalid-handle case was not induced. |
 | Windows successful impersonation and restoration | Observe the client SID, then restore the thread and process to broker context. | Passed on native Windows. | This checks request-scoped token use, not code trust. |
