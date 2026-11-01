@@ -75,6 +75,83 @@ verified as configured, but denial from a separate remote Windows host is not
 measured here. A second Windows account is not available in this environment,
 so denial of a different SID by the DACL is likewise unmeasured.
 
+## Phase 4: endpoint and deployment identity boundaries
+
+The test roles are B (broker/listener), A (client), U (unrelated OS identity),
+S (another process under the same OS identity), I (a process that creates a
+fake endpoint), and K (a process given a copy of the synthetic mTLS key).
+These labels do not imply separate accounts: the ordinary broker/client tests
+run under the same OS identity. Linux CI's `nobody` case is a real distinct
+existing UID; no test creates an account. A privileged attacker is an analytic
+out-of-scope case, not a tested actor.
+
+The fake-endpoint tests start an attacker-controlled Unix socket or named pipe
+before the client connects. They verify the OS identity of the connecting
+client, inspect the bounded synthetic reference request, and return a
+synthetic response selected by I. The client accepts that response because
+this experiment has no broker-authentication check. This demonstrates that
+endpoint reachability, a random endpoint name, and a server-side DACL do not
+authenticate B to A. The request contains a reference and deliberately false
+identity claims, not a credential or private key; this does not establish
+confidentiality for other client protocols.
+
+Linux additionally uses a broker-owned `0700` temporary directory with a
+deliberately broad `0666` socket. On a runner where the pre-existing `nobody`
+account is available without prompting, the test verifies the helper's actual
+UID and attempts to rename and unlink the socket. A denial is evidence about
+that directory and account on that run; it is not evidence about every parent
+directory, mount, ACL, container namespace, or deployment service. Those
+ancestors and mounts must remain trusted. Windows fake-endpoint and DACL tests
+run only under the current unprivileged SID. No separate Windows SID, remote
+host, service identity, or privileged endpoint takeover is provisioned or
+simulated.
+
+### Phase 4 scenario status
+
+| Scenario | Expected | Observed/status | Residual risk |
+|---|---|---|---|
+| Linux client connecting to I's fake socket | Client should validate B before accepting a response. | Added native test; pending Linux CI for this source revision. | Experiment client has no broker authentication; do not infer production client behavior. |
+| Windows client connecting to I's fake pipe | Client should validate B before accepting a response. | Passed on this Windows/amd64 host using the current SID; response was synthetic. | No second SID or remote host was used; DACL does not identify trusted code. |
+| Linux U replacing/unlinking B's endpoint | Private broker-owned parent directory should block U even when the socket mode is deliberately broad. | Added native test against the existing `nobody` identity; pending Linux CI for this source revision. | Only the tested directory and UID are covered; parents, mount configuration, and privileged actors remain trusted. |
+| Windows different-SID pipe access | DACL should deny U. | Blocked: no already-authorized disposable Windows identity environment; not simulated. | Configured DACL is not a measured cross-SID denial. |
+| Remote Windows pipe access | Remote client should be denied. | Not measured; the existing test confirms only the configured flag. | Configuration is not observed remote-host denial. |
+| Same-account process and endpoint substitution | S should be distinguishable from A, or endpoint replacement prevented. | Existing Linux test shows S can replace the pathname; existing Windows test shows same-SID client access and duplicated-handle reuse. | Neither mechanism attests executable identity or separates same-account code. |
+| Client request contents at fake endpoint | No credential/private key should be sent in this IPC request. | The fake servers observe only the bounded synthetic reference and false claims; the private key is not part of this test protocol. | No claim about another protocol or a compromised client. |
+| IPC plus mTLS | Both controls should be required before claiming a combined factor. | Not measured; no combined enforcement is implemented. | Layering may add key/lifecycle complexity without limiting same-account compromise. |
+| Application health or consumption | A successful write should prove application consumption. | Not measured. | Delivery attempt, write completion, application consumption, and health are distinct events. |
+
+### Deployment candidates (research comparison, not a selection)
+
+| Candidate | Enforced distinction and experiment evidence | Enrollment, custody, and lifecycle | Compromise, recovery, support, and cost |
+|---|---|---|---|
+| **A. Shared user** | Processes under the shared account have the same OS principal. Same-account endpoint access/substitution and handle reuse are observed in the native experiments. | Simplest install/update/restart/removal and rollback; no separate workload enrollment or key rotation. | A compromised process in that account can act as the other same-account process. Low operational cost; no process-specific boundary. |
+| **B. Dedicated broker identity; consumers may share an account** | A broker-owned namespace can deny unrelated U access; the new Linux parent-directory replacement test is pending native CI. Windows cross-SID denial is not measured. Shared consumers still collapse to one OS identity. | Requires service identity installation, ACL ownership, restart/recovery and removal procedures; identity/ACL migration must be coordinated with updates and rollback. No service provisioning was tested. | Broker identity compromise exposes broker authority; consumer-account compromise affects all consumers in that account. Additional deployment support and account administration; platform behavior must be validated. |
+| **C. Broker plus workload identities** | Could authorize A separately from other workloads only if the OS/platform supplies a trustworthy workload identity at the resource boundary. No workload-identity enrollment or validation was implemented. | Requires per-workload enrollment, mapping, rotation/revocation, update/restart coordination, deprovisioning and recovery. | Per-workload compromise can be scoped if identity and policy are correctly bound; availability depends on the identity source. Higher integration/support cost and platform-specific behavior; currently unmeasured. |
+| **D. Dedicated identities plus cryptographic key proof** | Potentially combines account isolation with proof of key possession. The copied-key mTLS experiment demonstrates key reuse by any process that receives the synthetic key; combined IPC+mTLS enforcement is not measured. | Adds key generation, protected custody, enrollment, rotation/revocation, backup/recovery, update and removal paths on top of dedicated identity management. | A copied/exportable key or compromise of the authorized process can erase the intended separation. Highest operational complexity; hardware-backed/non-exportable custody and cross-platform behavior are untested. |
+| **E. Existing explicit mTLS only** | The existing mTLS implementation authenticates a certificate principal and applies exact-reference policy; synthetic copied-key tests show possession permits use by a separate process. It does not assert local account or executable identity. | Existing ephemeral demo trust material is managed in memory for experiments. Production enrollment, key custody, rotation, revocation, and recovery remain open design questions. | Key compromise enables use as that certificate principal; no local account isolation is claimed. Lowest change to the current mTLS design; measured behavior is limited to the existing synthetic demo. |
+
+Only the named test observations are empirical. Account enrollment, Windows
+cross-SID/service behavior, workload identity, non-exportable key custody,
+rotation, revocation, install/update, failure recovery, rollback, and cost are
+design considerations and were not operationally measured. No candidate is
+recommended by this comparison.
+
+### Custody and lifecycle limits
+
+The copied-key baseline sends bounded synthetic material through the helper's
+stdin; the helper environment is allow-listed, and the tests check captured
+stdout/stderr and telemetry for key/value disclosure. No key is placed in a
+test fixture, command-line argument, or file. The fake-endpoint tests send no
+key at all. Windows checks that the tested pipe handles are not inheritable,
+and separately demonstrates that a duplicated connected handle retains
+access. It does not test arbitrary handle inheritance or process-memory
+extraction. Linux paths are temporary test paths; no full mount/ancestor trust
+audit is performed. Windows overlapped timeouts are canceled and drained;
+request bounds and disconnect behavior are tested on both transports, but an
+arbitrary blocking provider cannot be preempted. No zeroization, production
+service recovery, policy-digest custody, or health/consumption guarantee is
+claimed.
+
 ## Observations from this run
 
 Local environment: Windows NT 10.0.26300.0, Go 1.27.3, `windows/amd64`.

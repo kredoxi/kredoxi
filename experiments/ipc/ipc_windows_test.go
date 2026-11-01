@@ -794,6 +794,75 @@ func TestWindowsPipeFirstInstanceAndNameReuse(t *testing.T) {
 	}
 }
 
+func TestWindowsClientAcceptsSyntheticFakeBroker(t *testing.T) {
+	name, err := newPipeName()
+	if err != nil {
+		t.Fatal("could not create synthetic fake-broker pipe name")
+	}
+	sid, err := currentUserSID()
+	if err != nil {
+		t.Fatal("could not read current token SID")
+	}
+	handle, err := createPipe(name, sid, true)
+	if err != nil {
+		t.Fatal("could not create synthetic fake-broker pipe")
+	}
+	defer syscall.CloseHandle(handle)
+
+	value, err := randomSyntheticValue()
+	if err != nil {
+		t.Fatal("could not create a synthetic fake-broker response")
+	}
+	type observation struct {
+		sid     string
+		request request
+		raw     []byte
+		err     error
+	}
+	observed := make(chan observation, 1)
+	go func() {
+		if err := connectPipe(handle, pipeTimeoutMillis); err != nil {
+			observed <- observation{err: err}
+			return
+		}
+		raw, readErr := readFrame(handle, true)
+		input, parseErr := parseRequest(raw)
+		clientSID, sidErr := impersonatedClientSID(handle)
+		result := observation{
+			sid: clientSID, request: input, raw: raw,
+			err: errors.Join(readErr, parseErr, sidErr),
+		}
+		if result.err == nil && len(raw) <= maxRequestBytes {
+			result.err = writeFrame(handle, reply{Status: "resolved", Value: value}, true)
+		}
+		observed <- result
+	}()
+
+	result := runHelper(t, "native", map[string]string{
+		"KREDOXI_IPC_ENDPOINT":        name,
+		"KREDOXI_IPC_EXPECTED_DIGEST": syntheticValueDigest(value),
+	}, nil)
+	if result.err != nil || !strings.Contains(result.stdout, "ipc-helper:native=resolved") {
+		t.Fatal("client did not accept the fake pipe's synthetic response")
+	}
+	select {
+	case evidence := <-observed:
+		if evidence.err != nil || evidence.sid != sid ||
+			evidence.request.Reference != testReference ||
+			evidence.request.ClaimedPrincipal != "sid:S-1-5-18" ||
+			evidence.request.ClaimedUID != 0 || evidence.request.ClaimedPID != 1 {
+			t.Fatal("fake pipe did not observe the expected request and actual client token SID")
+		}
+		if strings.Contains(string(evidence.raw), value) ||
+			strings.Contains(string(evidence.raw), "private_key") {
+			t.Fatal("client request exposed synthetic response or private-key material")
+		}
+	case <-time.After(pipeTimeoutMillis*time.Millisecond + time.Second):
+		t.Fatal("fake pipe did not receive the client request")
+	}
+	assertOutputDoesNotContain(t, result.stdout+result.stderr, []byte(value))
+}
+
 func TestWindowsDuplicatedClientHandleRetainsAccess(t *testing.T) {
 	harness := newWindowsHarness(t)
 	namePointer, err := syscall.UTF16PtrFromString(harness.name)

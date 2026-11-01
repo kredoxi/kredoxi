@@ -1,138 +1,125 @@
 # Current PR Contract
 
 ## Goal
-Run reproducible, synthetic-only Linux pathname Unix-domain socket and Windows
-named-pipe experiments to measure whether OS account/token authorization adds
-a meaningful local boundary beyond Kredoxi's current mTLS key-holder model.
-Use the evidence to inform, but not decide, Architecture ADR 0002.
+Advance the merged native IPC mechanism experiments into experimentally
+validated deployment-boundary research: broker endpoint authentication,
+cross-identity endpoint protection, same-account and copied-key limits, and
+deployment identity/key-custody trade-offs. Use synthetic values only. Inform a
+separate Architecture follow-up without selecting a production transport or
+accepting ADR 0002.
 
 ## Contract status
 active
 
 ## Non-goals
-Production transport, resolver/broker changes, ADR acceptance, production
-architecture selection, real credentials, persistent account creation,
-workstation security-setting changes, privileged exploitation, OS interception,
-process/executable attestation, anti-tamper, release, any merge outside the
-narrowly authorized Core PR #5 integration below, or Architecture repository
-edits.
-
-## Carry-forward rules
-Preserve every installed core invariant. Synthetic-only fixtures and honest
-security claims are durable requirements.
+Production mTLS, resolver, endpoint, broker, telemetry, trust-root, or policy
+changes; production IPC; ADR 0002 acceptance; production architecture selection;
+real credentials; persistent accounts or services; workstation security,
+account, or network changes; privileged attacker testing; paid infrastructure;
+releases; automatic merges; Architecture repository edits.
 
 ## Approved scope
-An isolated Go standard-library experiment under `experiments/ipc/`, its source
-and tests, a reproducible README with measured results and residual risks, and
-the minimum CI wiring needed to run native tests on actual Linux and Windows
-runners. Update this contract and the task-scoped plan. Create and push Core PR
-A after validation; keep it open until the required gates pass, then merge
-only under the controlled integration amendment below.
+Extend the isolated Go experiments and documentation under `experiments/ipc/`
+with bounded, reproducible tests that use existing identities and synthetic
+fixtures. Measure endpoint replacement/pre-creation, broker impersonation,
+consumer-to-broker authentication, same-account access, existing Linux
+cross-UID boundary behavior, exact-reference policy ordering, and synthetic
+mTLS key reuse. Run native Windows checks only within the current unprivileged
+identity; run Linux distinct-UID checks only through an already-existing
+account on an authorized disposable runner. Do not provision accounts or
+services. Update this contract and the task-scoped Phase 4 plan. Create a
+separate Core PR A after validation and leave it open and unmerged.
 
-Before PR A, a separate governance-reconciliation commit is also authorized:
-restore `.github/carl/trust-boundaries.md` byte-for-byte to the official cARL
-v1.0.2 embedded artifact after preserving its Kredoxi-specific requirements in
-the existing project-owned `.github/carl/kredoxi-controls.md`. Keep this
-reconciliation separately reviewable from the IPC experiment commit.
+Update CI only if the existing native Linux/Windows jobs do not exercise the
+new tests. Do not add privileged account provisioning to CI.
 
 ## Intentional amendments
-This contract supersedes the completed synthetic-MVP/F1-F4 execution scope for
-this branch only. It authorizes non-production OS-native IPC experiments that
-the prior Core contract deferred, while preserving the explicit boundary that
-no production resolver, broker, provider, or `/v1/resolve` route may change.
-Architecture ADR 0001 remains accepted for the MVP. ADR 0002 remains proposed;
-only an owner may approve a production architecture or accept that ADR.
+This contract supersedes the completed native-IPC/PR #5 task contract for new
+work on this branch. Core PR #5 is already merged at `0c465c56a6732265bdad8ec3eba143a11b2a9895`;
+its conditional merge authorization has expired and does not authorize merging
+this PR A. This phase is research-only; its report may inform Architecture PR B
+but does not decide the architecture.
 
 ## Forbidden scope
-No production changes to `internal/resolver`, `internal/synthetic`, `cmd/`,
-wire protocol, or telemetry. No IPC routing/provider in production. No personal
-or cloud secret access, real credentials, persistent OS users, local security
-policy changes, EDR changes, drivers, privileged test setup, releases, merges
-outside the controlled Core PR #5 integration below, Architecture repo writes,
-plaintext fallback, or unsupported security claims.
-Do not use abstract Linux sockets.
+No production changes to `internal/`, `cmd/`, `examples/`, protocol, or
+telemetry; no edits to Architecture; no user or service-account creation,
+privilege elevation, machine/network/security setting changes, drivers,
+real/paid infrastructure, credentials, or privileged tests. Do not test on
+the owner's workstation or Gaia when a scenario needs account provisioning or
+privileged access. No automatic fallback, plaintext transport, merge, or
+unsupported security claims. A configured control is not evidence that the
+control blocked an attacker.
 
-## Architectural constraints
-The experiment is independent of the production broker and uses only synthetic
-disposable values. Linux uses pathname `AF_UNIX` streams and derives peer
-credentials from `SO_PEERCRED`; Windows uses named pipes with an explicit DACL,
-client-token SID inspection under impersonation, and checked context restoration.
-Both preserve default-deny exact-reference authorization before provider lookup.
-Never trust request-supplied identity, PID, name, path, or executable claims.
-Use no non-standard Go modules unless a demonstrated native API need is
-documented and approved first.
+## Architectural and evidence constraints
+The experiment is independent of the production broker. Preserve exact,
+default-deny reference authorization before provider lookup and count provider
+lookups. Obtain caller evidence only from the OS; request fields, endpoint
+names, PIDs, process names, paths, and executable hashes are not caller or code
+identity. Separate endpoint access, client identity, broker authentication,
+key possession, authorization, delivery attempt, write completion, application
+consumption, and health evidence. Report prevention, detection, limitation,
+and unmeasured scenarios separately. Random endpoint names and endpoint ACLs
+alone are not broker authentication. Do not claim that account identity proves
+executable integrity or protects against same-account or privileged code.
 
 ## Security constraints
-Bound and validate requests; fail closed on endpoint, identity, authorization,
-impersonation, and provider errors. Do not disclose synthetic values, private
-keys, raw bootstrap data, or sensitive diagnostics in output. Never treat PID
-or process name as executable identity, or account/token identity as code
-integrity. Same-account compromise and privileged attackers are not claimed to
-be prevented. No automatic mTLS/IPC fallback or bypass.
+Use only synthetic values and ephemeral test assets; never write private key
+material or synthetic values into fixtures, output, or telemetry. Keep
+requests bounded and fail closed. Do not create or alter OS accounts, services,
+security controls, or network exposure. Do not imitate a distinct identity
+with request fields, a mock, or the same token. Do not make production trust
+root, enrollment, rotation, or policy changes. Preserve existing tests and CI
+security boundaries; no privileged setup for untrusted pull-request code.
 
 ## Expected evidence
-Test forged identity fields, exact-policy denial before provider lookup,
-authorized missing-secret semantics, separate same-account client processes,
-real distinct-account enforcement only where an already authorized isolated
-environment exists, endpoint permissions/pre-creation/replacement/stale path,
-broker/client lifecycle, bounded malformed and oversized input, concurrency,
-and diagnostic/credential leakage. Windows additionally tests explicit DACL,
-token SID derivation, impersonation success/failure, restoration, remote-pipe
-denial, and handle inheritance/duplication where safely reproducible. Compare
-with unchanged mTLS behavior, including copied synthetic key use. Record each
-scenario's capability, expected and observed result, and residual risk.
+Record actual OS, build, Go version, architecture, identity/privilege context,
+source SHA, exact command, expected and observed result, errors, cleanup, and
+whether each claim is observed, configured-only, blocked, or not tested.
+Include endpoint pre-creation/replacement and fake-broker behavior; Linux
+existing-UID access/replacement outcomes; Windows actual token/DACL outcomes
+available without account provisioning; same-account process, handle, and
+copied-key limits; exact-reference/provider lookup behavior; credential
+exposure; and an evidence-qualified comparison of deployment candidates A-E.
+Do not claim cross-platform behavior based on compilation, mocks, or skips.
 
 ## Files expected to change
-`experiments/ipc/`, `.github/workflows/ci.yml`,
-`.github/carl/current-pr-contract.md`,
-`.github/carl/trust-boundaries.md`, and task-scoped files under
-`.github/carl/plans/`. The reconciliation must not remove or weaken the
-project-owned controls in `.github/carl/kredoxi-controls.md`. No other
-production or Architecture files are in scope.
+`experiments/ipc/`, `.github/carl/current-pr-contract.md`, and
+`.github/carl/plans/prA-phase4-workload-identity.md`. Change
+`.github/workflows/ci.yml` only if additional native test invocation is
+necessary. No production or Architecture files are in scope.
 
 ## Tests / validation
-Run native `go test ./...`, `go build ./...`, `go vet ./...`, formatting,
-race tests where supported, `govulncheck`, secret/diagnostic scans, and cARL
-status/effective/trace. A real Windows run is possible on this Windows host;
-the host has no installed WSL distribution, so Linux native tests require the
-repository's actual Linux CI runner. Cross-compilation or mocks do not count as
-native Linux evidence. Never create an account or modify host security settings
-to manufacture distinct-account results.
+Run focused native `go test ./experiments/ipc -count=1 -v`, then relevant
+`go test ./...`, `go build ./...`, `go vet ./...`, `go test -race ./...` where
+supported, formatting, `govulncheck`, and secret/diagnostic scans. Use native
+Linux CI for Linux behavior; local cross-compilation is not runtime evidence.
+Run cARL status, effective, trace, and harness checks. Leave unavailability
+explicit; do not simulate missing account or platform evidence.
 
 ## Stop conditions
-Any test needing real credentials, administrator/root access, persistent OS
-account changes, weakened security controls, or changes to production code
-must stop. Stop on unresolved governance drift or unexpected conflicting
-external writes.
+Stop if a scenario requires real credentials, account/service creation,
+privilege elevation, workstation or Gaia changes, weakening host protections,
+network exposure, paid infrastructure, or production/Architecture changes.
+Stop on conflicting governance state or unexpected concurrent work.
 
 ## Escalation triggers
-Any dependency addition, privileged setup, unsupported native API behavior,
-production transport change, owner decision, Architecture ADR edit, or
-security claim beyond measured evidence.
+Any dependency, privileged test setup, CI account provisioning, production
+trust-root/authentication change, production transport, Architecture edit,
+ADR acceptance, or claim beyond observed evidence.
 
-## Context reset notes
-Keep this contract active through Core PR A review, then close or supersede it.
-Architecture evidence/ADR evaluation belongs to the separately coordinated
-follow-up PR B. Do not merge either PR without explicit owner approval.
+## Contract assertions
+1. A local endpoint or endpoint ACL is not reported as broker authentication
+   unless client-observed broker identity is actually validated.
+2. Cross-account results use kernel/token evidence from genuinely distinct
+   existing identities; no simulated identity or account provisioning.
+3. Same-account process, connected-handle, and copied-key capabilities are
+   reported as observed limitations, not executable identity.
+4. Exact-reference denial occurs before provider lookup, and secrets remain
+   absent from test output and diagnostics.
+5. Candidate comparison separates measured facts from untested deployment
+   assumptions and does not recommend/accept a production ADR.
 
-## Controlled integration amendment
-**Owner approval (2026-11-01):** “The owner explicitly authorises merging these
-two PRs, in that order, provided all required security, governance and CI gates
-pass.”
-
-This amendment narrows the prior “leave it open and unmerged” and “merge”
-restrictions only for the first stage of that sequence: Core PR #5 on
-`goldjg-native-ipc-experiments`. This session may merge Core PR #5 only after
-the current PR head has passed every required security, governance, and CI gate,
-the required checks are associated with that exact head, branch protection
-remains enforced, no unresolved blocking review discussion exists, and the PR
-is mergeable without bypass. After merge, independently verify GitHub reports
-the PR merged and verify the resulting default-branch head and required native
-Linux, native Windows, and governance checks. Stop if any gate fails or the
-default-branch checks do not pass.
-
-The second-stage Architecture PR #4 is not approved for action in this Core
-session. Do not edit or merge it, accept ADR 0002, or change production
-architecture. The owner will assign the Architecture follow-up after Core
-merge and healthy default-branch validation. No other PR, merge-strategy
-bypass, auto-merge, release, or production transport change is authorized.
+## Context reset
+Keep this contract active through Core PR A review. Leave PR A open and
+unmerged. Architecture PR B is separately coordinated and out of scope.
+ADR 0002 remains Proposed.

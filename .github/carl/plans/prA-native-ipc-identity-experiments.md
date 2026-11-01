@@ -2,8 +2,8 @@
 
 ## Plan metadata
 - PR / branch: Core PR A / `goldjg-native-ipc-experiments`
-- Status: active; research only; conditional Core PR #5 merge authorized by
-  scoped owner-approved contract amendment
+- Status: completed; Core PR #5 merged to `main` at
+  `0c465c56a6732265bdad8ec3eba143a11b2a9895`
 - Author: Copilot
 - Created: 2026-11-01
 - Last updated: 2026-11-01
@@ -17,7 +17,7 @@ tests, and reproducible observations only. Architecture PR B owns the evidence
 report and ADR 0002 evaluation. Neither PR accepts ADR 0002 or changes
 production architecture.
 
-## Current repository context
+## Historical repository context
 
 Core `main` and the clean starting worktree both point to
 `b68ae7a5df757b22cc0091b0b484df0eb8a1ed25`; GitHub's current `main` matched
@@ -59,8 +59,10 @@ remain unchanged.
 
 ## Contract lifecycle note
 
-Completed PR constraints are historical unless promoted to durable invariants.
-This plan does not promote or accept an architecture decision.
+This plan records the completed Phase 3/Core PR #5 execution. Its conditional
+merge authorization expired when PR #5 merged. The active Phase 4 scope and
+constraints are in `prA-phase4-workload-identity.md`; this historical plan does
+not authorize new merges or accept an architecture decision.
 
 ## Intentional contract amendments
 
