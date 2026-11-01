@@ -138,6 +138,30 @@ integrity, same-account protection, privileged resistance, production
 enrollment, health, delivery, or arbitrary-provider cancellation. No combined
 IPC+mTLS protection claim is allowed without a measured test.
 
+## Owner-approved test-harness maintenance amendment
+
+On 2026-11-01, the owner explicitly approved a narrow repair for the historical
+Linux race in `cmd/demo/TestSupervisorTerminationContainsOwnedChild`. This
+adds only `cmd/demo/main_test.go` to the authorized write scope; it does not
+authorize any production behavior change, broader refactor, Linux account
+provisioning, or Architecture edit. Keep the fix in a distinct commit within
+Core PR #6 and leave Core PR #6 and Architecture PR #5 open/unmerged.
+
+The original failure was observed in CI run 41341767034 attempt 1 at the
+`go test -race ./...` step: the test saw the `KREDOXI_SUPERVISOR_READY ` marker
+but parsed fewer than two whitespace-separated fields. The child listener
+wrote its address to stdout and readiness to stderr. The parent test helper
+treated stderr readiness as startup completion, then immediately snapshotted a
+separately drained stdout capture; the address could still be buffered by the
+stdout reader. This classified a real pre-existing test synchronization race,
+not an infrastructure error and not an IPC package failure.
+
+Before editing, the focused test was run 100 times on local Windows without
+race instrumentation and passed all 100; this does not reproduce the Linux
+race. Local Windows Go has `CGO_ENABLED=0`, so the Linux race-instrumented
+failure could not be reproduced locally. The original failing native Linux
+CI attempt remains the reproduction evidence.
+
 ## Execution outcome
 
 - Implementation commit / tested source SHA:
@@ -159,6 +183,14 @@ IPC+mTLS protection claim is allowed without a measured test.
   broker authentication. This result is confined to the experiment helper and
   does not alter or characterize the production mTLS client.
 - No production architecture is selected; ADR 0002 remains Proposed.
+- The first Linux run at final documentation head failed the unrelated
+  supervisor test; retry attempt 2 passed. Treat the first failure as a
+  synchronization defect, not as irrelevant merely because the retry passed.
+- Three-identity endpoint access remains blocked and unverified: current Linux
+  evidence lacks an authorized distinct consumer UID that can connect while
+  being unable to replace the endpoint. Do not simulate this scenario or claim
+  a deployable identity boundary from the existing broker-owned `0700` parent
+  test.
 
 ## Stop conditions
 

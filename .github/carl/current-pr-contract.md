@@ -33,6 +33,18 @@ separate Core PR A after validation and leave it open and unmerged.
 Update CI only if the existing native Linux/Windows jobs do not exercise the
 new tests. Do not add privileged account provisioning to CI.
 
+**Owner-approved narrow amendment (2026-11-01):** Remediate the pre-existing
+test-only synchronization race in
+`cmd/demo/TestSupervisorTerminationContainsOwnedChild` within Core PR #6.
+Only `cmd/demo/main_test.go` may change for this maintenance item; no production
+behavior changes, broader refactors, or Architecture changes are authorized.
+The correction must use deterministic reader coordination, preserve process
+containment/termination and diagnostic-redaction guarantees, add regression
+coverage, and land as a distinct clearly named commit. Reproduce/document the
+failure before editing where practical. The existing real three-identity Linux
+test gap remains explicitly blocked and unverified; this amendment does not
+authorize simulation or weaken its acceptance criteria.
+
 ## Intentional amendments
 This contract supersedes the completed native-IPC/PR #5 task contract for new
 work on this branch. Core PR #5 is already merged at `0c465c56a6732265bdad8ec3eba143a11b2a9895`;
@@ -49,6 +61,9 @@ the owner's workstation or Gaia when a scenario needs account provisioning or
 privileged access. No automatic fallback, plaintext transport, merge, or
 unsupported security claims. A configured control is not evidence that the
 control blocked an attacker.
+
+The test-only exception above is limited to `cmd/demo/main_test.go`; all
+production source under `cmd/demo/` remains forbidden.
 
 ## Architectural and evidence constraints
 The experiment is independent of the production broker. Preserve exact,
@@ -83,18 +98,20 @@ exposure; and an evidence-qualified comparison of deployment candidates A-E.
 Do not claim cross-platform behavior based on compilation, mocks, or skips.
 
 ## Files expected to change
-`experiments/ipc/`, `.github/carl/current-pr-contract.md`, and
-`.github/carl/plans/prA-phase4-workload-identity.md`. Change
+`experiments/ipc/`, `.github/carl/current-pr-contract.md`,
+`.github/carl/plans/prA-phase4-workload-identity.md`, and the separately
+committed test-only correction in `cmd/demo/main_test.go`. Change
 `.github/workflows/ci.yml` only if additional native test invocation is
 necessary. No production or Architecture files are in scope.
 
 ## Tests / validation
 Run focused native `go test ./experiments/ipc -count=1 -v`, then relevant
 `go test ./...`, `go build ./...`, `go vet ./...`, `go test -race ./...` where
-supported, formatting, `govulncheck`, and secret/diagnostic scans. Use native
-Linux CI for Linux behavior; local cross-compilation is not runtime evidence.
-Run cARL status, effective, trace, and harness checks. Leave unavailability
-explicit; do not simulate missing account or platform evidence.
+supported; repeat the focused supervisor race test, formatting,
+`govulncheck`, and secret/diagnostic scans. Use native Linux CI for Linux
+behavior; local cross-compilation is not runtime evidence. Run cARL status,
+effective, trace, and harness checks. Leave unavailability explicit; do not
+simulate missing account or platform evidence.
 
 ## Stop conditions
 Stop if a scenario requires real credentials, account/service creation,
@@ -118,6 +135,9 @@ ADR acceptance, or claim beyond observed evidence.
    absent from test output and diagnostics.
 5. Candidate comparison separates measured facts from untested deployment
    assumptions and does not recommend/accept a production ADR.
+6. Supervisor containment assertions consume a complete readiness address
+   delivered by the stderr readiness protocol and a complete stdout diagnostic
+   line; neither assertion can race an independent pipe reader.
 
 ## Context reset
 Keep this contract active through Core PR A review. Leave PR A open and
