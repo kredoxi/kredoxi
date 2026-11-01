@@ -13,8 +13,9 @@ active
 Production transport, resolver/broker changes, ADR acceptance, production
 architecture selection, real credentials, persistent account creation,
 workstation security-setting changes, privileged exploitation, OS interception,
-process/executable attestation, anti-tamper, release, merge, or Architecture
-repository edits.
+process/executable attestation, anti-tamper, release, any merge outside the
+narrowly authorized Core PR #5 integration below, or Architecture repository
+edits.
 
 ## Carry-forward rules
 Preserve every installed core invariant. Synthetic-only fixtures and honest
@@ -25,7 +26,8 @@ An isolated Go standard-library experiment under `experiments/ipc/`, its source
 and tests, a reproducible README with measured results and residual risks, and
 the minimum CI wiring needed to run native tests on actual Linux and Windows
 runners. Update this contract and the task-scoped plan. Create and push Core PR
-A after validation; leave it open and unmerged.
+A after validation; keep it open until the required gates pass, then merge
+only under the controlled integration amendment below.
 
 Before PR A, a separate governance-reconciliation commit is also authorized:
 restore `.github/carl/trust-boundaries.md` byte-for-byte to the official cARL
@@ -45,8 +47,9 @@ only an owner may approve a production architecture or accept that ADR.
 No production changes to `internal/resolver`, `internal/synthetic`, `cmd/`,
 wire protocol, or telemetry. No IPC routing/provider in production. No personal
 or cloud secret access, real credentials, persistent OS users, local security
-policy changes, EDR changes, drivers, privileged test setup, releases, merge,
-Architecture repo writes, plaintext fallback, or unsupported security claims.
+policy changes, EDR changes, drivers, privileged test setup, releases, merges
+outside the controlled Core PR #5 integration below, Architecture repo writes,
+plaintext fallback, or unsupported security claims.
 Do not use abstract Linux sockets.
 
 ## Architectural constraints
@@ -111,3 +114,25 @@ security claim beyond measured evidence.
 Keep this contract active through Core PR A review, then close or supersede it.
 Architecture evidence/ADR evaluation belongs to the separately coordinated
 follow-up PR B. Do not merge either PR without explicit owner approval.
+
+## Controlled integration amendment
+**Owner approval (2026-11-01):** “The owner explicitly authorises merging these
+two PRs, in that order, provided all required security, governance and CI gates
+pass.”
+
+This amendment narrows the prior “leave it open and unmerged” and “merge”
+restrictions only for the first stage of that sequence: Core PR #5 on
+`goldjg-native-ipc-experiments`. This session may merge Core PR #5 only after
+the current PR head has passed every required security, governance, and CI gate,
+the required checks are associated with that exact head, branch protection
+remains enforced, no unresolved blocking review discussion exists, and the PR
+is mergeable without bypass. After merge, independently verify GitHub reports
+the PR merged and verify the resulting default-branch head and required native
+Linux, native Windows, and governance checks. Stop if any gate fails or the
+default-branch checks do not pass.
+
+The second-stage Architecture PR #4 is not approved for action in this Core
+session. Do not edit or merge it, accept ADR 0002, or change production
+architecture. The owner will assign the Architecture follow-up after Core
+merge and healthy default-branch validation. No other PR, merge-strategy
+bypass, auto-merge, release, or production transport change is authorized.

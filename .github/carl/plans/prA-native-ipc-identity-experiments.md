@@ -2,7 +2,8 @@
 
 ## Plan metadata
 - PR / branch: Core PR A / `goldjg-native-ipc-experiments`
-- Status: active; implementation explicitly requested for research only
+- Status: active; research only; conditional Core PR #5 merge authorized by
+  scoped owner-approved contract amendment
 - Author: Copilot
 - Created: 2026-11-01
 - Last updated: 2026-11-01
@@ -81,8 +82,9 @@ and mTLS provides an independent factor or mainly operational complexity.
 - Process or executable attestation, trusted-code claims, or privileged
   attacker testing.
 - Creating OS accounts or changing workstation security settings.
-- Accepting ADR 0002, changing ADR 0001, or editing Architecture PR B material.
-- Real secrets, releases, automatic fallback, or merge.
+- Accepting ADR 0002, changing ADR 0001, or editing/merging Architecture PR B.
+- Real secrets, releases, automatic fallback, or any merge outside the scoped
+  owner-approved Core PR #5 integration.
 
 ## Approved scope
 
@@ -149,6 +151,9 @@ never in committed artifacts or diagnostic output.
    OS/runtime/test evidence.
 5. Run required checks, record only observed results in the experiment README,
    create Core PR A, and hand Architecture PR B's coordinator the evidence.
+6. Merge Core PR #5 only after the controlled gates in the owner-approved
+   integration amendment pass; then verify the merged default-branch head and
+   its native Linux, native Windows, and governance checks.
 
 ## Acceptance criteria
 
@@ -211,5 +216,18 @@ changing production code/Architecture decisions.
 
 ## Context reset requirements
 
-Keep the Core contract active until PR A is reviewed. Architecture PR B is
-separately coordinated. Do not merge either PR without explicit owner approval.
+Keep the Core contract active through the controlled Core PR #5 merge and
+post-merge default-branch validation, then close or supersede it. Architecture
+PR B is separately coordinated and out of scope for this session. Do not merge
+it or accept ADR 0002.
+
+## Owner-approved integration amendment
+
+On 2026-11-01, the owner explicitly authorized merging Core PR #5 followed by
+Architecture PR #4, provided all required security, governance, and CI gates
+pass. This session executes Core PR #5 only. It must not bypass branch
+protection, merge with stale checks, auto-merge, edit/merge Architecture PR #4,
+accept ADR 0002, or change production architecture. Stop unless the exact PR
+head is mergeable and all required checks pass; after merging Core #5, verify
+its merged state, resulting `main` SHA, and successful default-branch Linux,
+Windows, and governance CI before handing off to the owner.
