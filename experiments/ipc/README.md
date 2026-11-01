@@ -110,9 +110,9 @@ simulated.
 
 | Scenario | Expected | Observed/status | Residual risk |
 |---|---|---|---|
-| Linux client connecting to I's fake socket | Client should validate B before accepting a response. | Added native test; pending Linux CI for this source revision. | Experiment client has no broker authentication; do not infer production client behavior. |
-| Windows client connecting to I's fake pipe | Client should validate B before accepting a response. | Passed on this Windows/amd64 host using the current SID; response was synthetic. | No second SID or remote host was used; DACL does not identify trusted code. |
-| Linux U replacing/unlinking B's endpoint | Private broker-owned parent directory should block U even when the socket mode is deliberately broad. | Added native test against the existing `nobody` identity; pending Linux CI for this source revision. | Only the tested directory and UID are covered; parents, mount configuration, and privileged actors remain trusted. |
+| Linux client connecting to I's fake socket | Client should validate B before accepting a response. | Passed on native Ubuntu 24.04 CI at Phase 4 source SHA `9cae544d85ececd814e2977f0e32741ec1b9b773`. | Experiment client has no broker authentication; do not infer production client behavior. |
+| Windows client connecting to I's fake pipe | Client should validate B before accepting a response. | Passed on native Windows/amd64 locally and on the Windows Server 2025 CI runner using the actual current token SID; response was synthetic. | No second SID or remote host was used; DACL does not identify trusted code. |
+| Linux U replacing/unlinking B's endpoint | Private broker-owned parent directory should block U even when the socket mode is deliberately broad. | Passed on native Ubuntu 24.04 CI at source SHA `9cae544d85ececd814e2977f0e32741ec1b9b773`; the test ran as the existing `nobody` UID and verified it differed from the broker UID. | Only the tested directory and UID are covered; parents, mount configuration, and privileged actors remain trusted. |
 | Windows different-SID pipe access | DACL should deny U. | Blocked: no already-authorized disposable Windows identity environment; not simulated. | Configured DACL is not a measured cross-SID denial. |
 | Remote Windows pipe access | Remote client should be denied. | Not measured; the existing test confirms only the configured flag. | Configuration is not observed remote-host denial. |
 | Same-account process and endpoint substitution | S should be distinguishable from A, or endpoint replacement prevented. | Existing Linux test shows S can replace the pathname; existing Windows test shows same-SID client access and duplicated-handle reuse. | Neither mechanism attests executable identity or separates same-account code. |
@@ -135,6 +135,37 @@ cross-SID/service behavior, workload identity, non-exportable key custody,
 rotation, revocation, install/update, failure recovery, rollback, and cost are
 design considerations and were not operationally measured. No candidate is
 recommended by this comparison.
+
+### Phase 4 native run record
+
+The tested source was Core PR #6 head
+`9cae544d85ececd814e2977f0e32741ec1b9b773`; GitHub Actions run
+[41341406034](https://github.com/kredoxi/kredoxi/actions/runs/41341406034)
+passed governance, native Ubuntu, and native Windows jobs. The Ubuntu runner
+was `ubuntu-24.04` (image `20261025.353.1`), Go `1.27.3 linux/amd64`. The
+Linux experiment command was `go test ./experiments/ipc -count=1 -v`; the
+endpoint rename/unlink, fake broker, distinct-UID policy-denial, and copied-key
+tests all passed without skips. The existing `nobody` account was used, not
+created, and the test checked its actual UID differed from the endpoint owner.
+The configured `0700` parent blocked both rename and unlink even though the
+socket was deliberately `0666`. Its parent ancestry and mount settings were
+not audited.
+
+The Windows CI runner was Microsoft Windows Server 2025, image
+`windows-2025-vs2026`, Go `1.27.3 windows/amd64`; the additional local run was
+Windows NT `10.0.26300.0`, also Go `1.27.3 windows/amd64`. The fake-pipe server
+read the actual client token SID and verified it matched the SID granted by
+the test DACL; the SID literal is intentionally not copied into this report.
+`TestWindowsClientAcceptsSyntheticFakeBroker` passed on both native Windows
+environments. The remote-host denial case remained explicitly skipped because
+no separate authorized Windows host was available. No Windows second account
+was created or simulated.
+
+The CI job also ran `go build ./...`, `go test ./...`, `go vet ./...`,
+Linux `go test -race ./...`, both configured five-second resolver fuzz runs,
+formatting, `govulncheck`, and repeat-build integrity; all passed. Temporary
+socket directories, helper binaries, and pipe handles were cleaned by the
+tests. No persistent account, service, or credential was created.
 
 ### Custody and lifecycle limits
 

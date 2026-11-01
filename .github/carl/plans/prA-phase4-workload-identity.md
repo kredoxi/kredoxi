@@ -138,6 +138,28 @@ integrity, same-account protection, privileged resistance, production
 enrollment, health, delivery, or arbitrary-provider cancellation. No combined
 IPC+mTLS protection claim is allowed without a measured test.
 
+## Execution outcome
+
+- Implementation commit / tested source SHA:
+  `9cae544d85ececd814e2977f0e32741ec1b9b773`.
+- Core PR #6 is open and unmerged.
+- Native CI run
+  [41341406034](https://github.com/kredoxi/kredoxi/actions/runs/41341406034)
+  passed governance, Ubuntu 24.04, and Windows Server 2025 jobs.
+- Linux used Go 1.27.3 `linux/amd64`; the pre-existing `nobody` account was
+  distinct from the broker UID, and endpoint rename/unlink, fake broker,
+  exact-UID policy denial, and copied-key cases passed without skips.
+- Windows used Go 1.27.3 `windows/amd64`; the fake pipe test verified the
+  client's real token SID matched the DACL's current SID. Different-SID and
+  remote-host denial remain unmeasured; the remote case explicitly skipped.
+- Local Windows tests, full suite, build, vet, vulnerability scan, and
+  formatting passed. Local Linux runtime testing was unavailable; CI is the
+  native Linux evidence.
+- The fake endpoint accepts and returns a synthetic response without client
+  broker authentication. This result is confined to the experiment helper and
+  does not alter or characterize the production mTLS client.
+- No production architecture is selected; ADR 0002 remains Proposed.
+
 ## Stop conditions
 
 Stop any scenario requiring real credentials, account/service creation,
