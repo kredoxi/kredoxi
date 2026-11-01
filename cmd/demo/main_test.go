@@ -84,22 +84,21 @@ func TestProcessSupervisorHelper(t *testing.T) {
 			os.Exit(22)
 		}
 		fmt.Fprintln(os.Stdout, listener.Addr().String())
-		fmt.Fprintln(os.Stderr, "KREDOXI_READY testchild")
+		fmt.Fprintf(os.Stderr, "KREDOXI_READY testchild %s\n", listener.Addr())
 		select {}
 	case "supervisor":
 		fmt.Fprintln(os.Stderr, "KREDOXI_READY supervisor")
 		outputs := newOutputSet()
 		childCommand := exec.Command(os.Args[0], "-test.run=^TestProcessSupervisorHelper$")
 		childCommand.Env = append(minimalProcessEnvironment(), "KREDOXI_PROCESS_HELPER=listen")
-		_, _, err := startCommand(
+		_, address, err := startCommand(
 			childCommand, "testchild", struct{}{}, true, outputs.process("testchild"), time.Second,
 		)
 		if err != nil {
 			fmt.Fprintln(os.Stdout, "KREDOXI_SUPERVISOR_CHILD_START_FAILED")
 			os.Exit(27)
 		}
-		data, _ := outputs.capture("testchild.stdout").snapshot()
-		fmt.Fprintf(os.Stdout, "KREDOXI_SUPERVISOR_READY %s\n", strings.TrimSpace(string(data)))
+		fmt.Fprintf(os.Stdout, "KREDOXI_SUPERVISOR_READY %s\n", address)
 		for {
 			time.Sleep(time.Hour)
 		}
@@ -261,25 +260,74 @@ func TestSupervisorTerminationContainsOwnedChild(t *testing.T) {
 	t.Cleanup(func() {
 		_ = supervisor.terminate(shutdownTimeout)
 	})
-	if !waitContainsEither(stdout, "KREDOXI_SUPERVISOR_READY ", "KREDOXI_SUPERVISOR_CHILD_START_FAILED", 15*time.Second) {
+	line, ok := waitForOutputLine(stdout, "KREDOXI_SUPERVISOR_", 15*time.Second)
+	if !ok {
 		stdoutData, _ := stdout.snapshot()
 		stderrData, _ := stderr.snapshot()
 		t.Fatalf("supervisor did not report its owned listener (stdout bytes: %d, stderr bytes: %d)", len(stdoutData), len(stderrData))
 	}
-	data, _ := stdout.snapshot()
-	if bytes.Contains(data, []byte("KREDOXI_SUPERVISOR_CHILD_START_FAILED")) {
+	if strings.HasPrefix(line, "KREDOXI_SUPERVISOR_CHILD_START_FAILED") {
 		t.Fatal("supervisor could not contain its owned child")
 	}
-	fields := strings.Fields(string(data))
-	if len(fields) < 2 {
+	if !strings.HasPrefix(line, "KREDOXI_SUPERVISOR_READY ") {
+		t.Fatal("supervisor emitted an unexpected diagnostic")
+	}
+	fields := strings.Fields(line)
+	if len(fields) != 2 {
 		t.Fatal("supervisor readiness diagnostic was malformed")
 	}
-	address := fields[len(fields)-1]
+	address := fields[1]
 	if err := supervisor.terminate(shutdownTimeout); err != nil || !isClosed(supervisor.finished) {
 		t.Fatal("supervisor process termination was not confirmed")
 	}
 	if !waitForListenerClosed(address, 5*time.Second) {
 		t.Fatal("owned child listener survived supervisor termination")
+	}
+}
+
+func waitForOutputLine(capture *outputCapture, prefix string, timeout time.Duration) (string, bool) {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	for {
+		capture.mu.Lock()
+		if line, ok := findCompleteOutputLine(capture.data, prefix); ok {
+			capture.mu.Unlock()
+			return line, true
+		}
+		changed := capture.changed
+		capture.mu.Unlock()
+		select {
+		case <-changed:
+		case <-timer.C:
+			return "", false
+		}
+	}
+}
+
+func findCompleteOutputLine(data []byte, prefix string) (string, bool) {
+	for len(data) > 0 {
+		end := bytes.IndexByte(data, '\n')
+		if end < 0 {
+			return "", false
+		}
+		line := strings.TrimSuffix(string(data[:end]), "\r")
+		if strings.HasPrefix(line, prefix) {
+			return line, true
+		}
+		data = data[end+1:]
+	}
+	return "", false
+}
+
+func TestFindCompleteOutputLineWaitsForNewline(t *testing.T) {
+	partial := []byte("KREDOXI_SUPERVISOR_READY 127.0.0.1:1234")
+	if _, ok := findCompleteOutputLine(partial, "KREDOXI_SUPERVISOR_READY "); ok {
+		t.Fatal("incomplete diagnostic was treated as a complete line")
+	}
+
+	line, ok := findCompleteOutputLine(append(partial, '\n'), "KREDOXI_SUPERVISOR_READY ")
+	if !ok || line != string(partial) {
+		t.Fatal("complete diagnostic line was not recognized")
 	}
 }
 
