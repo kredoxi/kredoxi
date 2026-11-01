@@ -63,8 +63,11 @@ The same-account helper process resolves successfully, proving that another
 process under the authorized SID can reuse that account boundary. Impersonation
 failure returns `authentication_denied` without provider access; successful
 impersonation observes the client SID and checks that both the thread token and
-broker process token are restored. An already-connected handle can be
-duplicated and used to finish the request.
+broker process token are restored. The broker verifies the thread token is
+absent on the still-locked OS thread before releasing it. Timed-out overlapped
+I/O is canceled and its completion is drained before the operation, event, or
+buffer can leave scope. An already-connected handle can be duplicated and used
+to finish the request.
 
 The first-instance test rejects a pipe name that is already occupied and
 confirms that the name can be reused after closure. The remote-client flag is
@@ -116,6 +119,8 @@ skip on CI if the runner does not permit passwordless switching to its existing
 | Windows named pipe DACL and same-account process | Explicit current-SID DACL permits a same-SID helper; OS token SID is observed despite false fields. | Passed on native Windows. Different-SID denial was not measured. | DACL configuration is not executable identity; another process under the allowed SID can connect. |
 | Windows impersonation failure | Invalid client handle fails closed with no provider lookup and no broker-token change. | Passed on native Windows. | A real OS-level impersonation failure mode beyond the invalid-handle case was not induced. |
 | Windows successful impersonation and restoration | Observe the client SID, then restore the thread and process to broker context. | Passed on native Windows. | This checks request-scoped token use, not code trust. |
+| Windows restoration verification ordering | Verify the broker thread has no client token before unlocking the OS thread; do not unlock if verification fails. | Passed on native Windows, including focused ordering regression test. | Does not exercise a real `RevertToSelf` failure; that path remains fail-stop. |
+| Windows overlapped timeout and cancellation | Cancel timed-out pipe I/O and wait for terminal completion before releasing OVERLAPPED/event/buffer resources. | Passed on native Windows, including a real pending-read cancellation test repeated four times. | If cancellation cannot complete, the operation waits rather than risking resource release while outstanding. |
 | Windows first instance and name reuse | Reject an occupied pipe name; allow name reuse after closure. | Passed on native Windows. | Namespace reuse after broker shutdown remains possible by design. |
 | Windows duplicated connected handle | A duplicated handle retains access to the already-connected pipe. | Passed on native Windows. | A process that obtains a connected handle can reuse that capability. |
 | Windows client disconnect and broker exit | An incomplete frame is rejected without lookup and the one-request test server finishes; explicit shutdown without a client exits. | Passed on native Windows. | Tests bounded local lifecycle only; no persistent service recovery behavior is claimed. |

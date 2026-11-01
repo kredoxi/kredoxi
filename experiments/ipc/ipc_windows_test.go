@@ -33,10 +33,15 @@ const (
 	errorIOPending         = syscall.Errno(997)
 	errorPipeConnected     = syscall.Errno(535)
 	errorNoToken           = syscall.Errno(1008)
+	errorOperationAborted  = syscall.Errno(995)
+	errorIOIncomplete      = syscall.Errno(996)
+	errorNotFound          = syscall.Errno(1168)
 	waitTimeout            = 258
 	waitFailed             = 0xffffffff
 	pipeTimeoutMillis      = 3000
 )
+
+var errPipeOperationTimeout = errors.New("named-pipe operation timed out")
 
 var (
 	kernel32                  = syscall.NewLazyDLL("kernel32.dll")
@@ -258,6 +263,7 @@ func connectPipe(handle syscall.Handle, timeout uint32) error {
 		return callErr
 	}
 	_, err = waitOverlapped(handle, &overlapped, timeout)
+	runtime.KeepAlive(&overlapped)
 	return err
 }
 
@@ -272,25 +278,86 @@ func createPipeEvent() (syscall.Handle, error) {
 func waitOverlapped(handle syscall.Handle, overlapped *syscall.Overlapped, timeout uint32) (uint32, error) {
 	waitResult, _, waitErr := procWaitForSingleObject.Call(uintptr(overlapped.HEvent), uintptr(timeout))
 	if waitResult == waitTimeout {
-		_, _, _ = procCancelIoEx.Call(uintptr(handle), uintptr(unsafe.Pointer(overlapped)))
-		_, _, _ = procWaitForSingleObject.Call(uintptr(overlapped.HEvent), uintptr(timeout))
-		return 0, errors.New("named-pipe operation timed out")
+		cancelErr := cancelOverlapped(handle, overlapped)
+		transferred, completionErr := awaitOverlappedCompletion(handle, overlapped)
+		return transferred, errors.Join(
+			errPipeOperationTimeout,
+			nonCancellationError(cancelErr),
+			nonCancellationError(completionErr),
+		)
 	}
 	if waitResult == waitFailed {
-		return 0, waitErr
+		if waitErr == nil {
+			waitErr = errors.New("WaitForSingleObject failed without an error code")
+		}
+		cancelErr := cancelOverlapped(handle, overlapped)
+		transferred, completionErr := awaitOverlappedCompletion(handle, overlapped)
+		return transferred, errors.Join(
+			fmt.Errorf("wait for named-pipe operation: %w", waitErr),
+			nonCancellationError(cancelErr),
+			nonCancellationError(completionErr),
+		)
 	}
-	var transferred uint32
-	ok, _, resultErr := procGetOverlappedResult.Call(
+	if waitResult != 0 {
+		cancelErr := cancelOverlapped(handle, overlapped)
+		transferred, completionErr := awaitOverlappedCompletion(handle, overlapped)
+		return transferred, errors.Join(
+			fmt.Errorf("unexpected named-pipe wait result: %d", waitResult),
+			nonCancellationError(cancelErr),
+			nonCancellationError(completionErr),
+		)
+	}
+	return overlappedResult(handle, overlapped, false)
+}
+
+func cancelOverlapped(handle syscall.Handle, overlapped *syscall.Overlapped) error {
+	cancelled, _, err := procCancelIoEx.Call(
 		uintptr(handle), uintptr(unsafe.Pointer(overlapped)),
-		uintptr(unsafe.Pointer(&transferred)), 0,
+	)
+	if cancelled == 0 && !errors.Is(err, errorNotFound) {
+		return fmt.Errorf("cancel named-pipe operation: %w", err)
+	}
+	return nil
+}
+
+func awaitOverlappedCompletion(handle syscall.Handle, overlapped *syscall.Overlapped) (uint32, error) {
+	for {
+		transferred, err := overlappedResult(handle, overlapped, true)
+		if !errors.Is(err, errorIOIncomplete) {
+			return transferred, err
+		}
+		_, _, _ = procWaitForSingleObject.Call(uintptr(overlapped.HEvent), ^uintptr(0))
+	}
+}
+
+func overlappedResult(handle syscall.Handle, overlapped *syscall.Overlapped, wait bool) (uint32, error) {
+	var transferred uint32
+	waitFlag := uintptr(0)
+	if wait {
+		waitFlag = 1
+	}
+	ok, _, err := procGetOverlappedResult.Call(
+		uintptr(handle), uintptr(unsafe.Pointer(overlapped)),
+		uintptr(unsafe.Pointer(&transferred)), waitFlag,
 	)
 	if ok == 0 {
-		return 0, resultErr
+		return transferred, err
 	}
 	return transferred, nil
 }
 
+func nonCancellationError(err error) error {
+	if errors.Is(err, errorOperationAborted) {
+		return nil
+	}
+	return err
+}
+
 func pipeIO(handle syscall.Handle, data []byte, write, overlapped bool) (int, error) {
+	return pipeIOWithTimeout(handle, data, write, overlapped, pipeTimeoutMillis)
+}
+
+func pipeIOWithTimeout(handle syscall.Handle, data []byte, write, overlapped bool, timeout uint32) (int, error) {
 	if len(data) == 0 {
 		return 0, nil
 	}
@@ -324,7 +391,9 @@ func pipeIO(handle syscall.Handle, data []byte, write, overlapped bool) (int, er
 		return int(transferred), err
 	}
 	if errors.Is(err, errorIOPending) {
-		transferred, err = waitOverlapped(handle, &operation, pipeTimeoutMillis)
+		transferred, err = waitOverlapped(handle, &operation, timeout)
+		runtime.KeepAlive(&operation)
+		runtime.KeepAlive(data)
 		if err != nil {
 			return 0, err
 		}
@@ -475,14 +544,29 @@ func impersonatedClientSID(pipe syscall.Handle) (string, error) {
 		// Do not return to broker logic or unlock an OS thread with a client token.
 		runtime.Goexit()
 	}
-	runtime.UnlockOSThread()
+	restoreErr := verifyRestoredContextBeforeUnlock(verifyBrokerThreadContext, runtime.UnlockOSThread)
+	if restoreErr != nil {
+		runtime.Goexit()
+	}
 	if tokenErr != nil {
 		return "", tokenErr
 	}
-	if _, err := threadUserSID(); !errors.Is(err, errorNoToken) {
-		return "", errors.New("broker thread token remained after RevertToSelf")
-	}
 	return sid, nil
+}
+
+func verifyBrokerThreadContext() error {
+	if _, err := threadUserSID(); !errors.Is(err, errorNoToken) {
+		return errors.New("broker thread token remained after RevertToSelf")
+	}
+	return nil
+}
+
+func verifyRestoredContextBeforeUnlock(verify func() error, unlock func()) error {
+	err := verify()
+	if err == nil {
+		unlock()
+	}
+	return err
 }
 
 func getHandleFlags(handle syscall.Handle) (uint32, error) {
@@ -508,6 +592,87 @@ func duplicateHandle(handle syscall.Handle) (syscall.Handle, error) {
 		return syscall.InvalidHandle, err
 	}
 	return duplicate, nil
+}
+
+func TestWindowsOverlappedReadTimeoutWaitsForCancellation(t *testing.T) {
+	name, err := newPipeName()
+	if err != nil {
+		t.Fatal("could not create timeout-test pipe name")
+	}
+	sid, err := currentUserSID()
+	if err != nil {
+		t.Fatal("could not read broker token SID")
+	}
+	server, err := createPipe(name, sid, true)
+	if err != nil {
+		t.Fatal("could not create timeout-test pipe")
+	}
+	defer syscall.CloseHandle(server)
+
+	namePointer, err := syscall.UTF16PtrFromString(name)
+	if err != nil {
+		t.Fatal("could not encode timeout-test pipe name")
+	}
+	waited, _, waitErr := procWaitNamedPipeW.Call(
+		uintptr(unsafe.Pointer(namePointer)), pipeTimeoutMillis,
+	)
+	if waited == 0 {
+		t.Fatalf("timeout-test pipe was not ready: %v", waitErr)
+	}
+	client, err := syscall.CreateFile(
+		namePointer,
+		syscall.GENERIC_READ|syscall.GENERIC_WRITE,
+		0,
+		nil,
+		syscall.OPEN_EXISTING,
+		syscall.FILE_ATTRIBUTE_NORMAL|securitySQOSPresent|securityImpersonation,
+		0,
+	)
+	if err != nil {
+		t.Fatal("could not connect timeout-test client")
+	}
+	defer syscall.CloseHandle(client)
+	if err := connectPipe(server, pipeTimeoutMillis); err != nil {
+		t.Fatal("could not accept timeout-test client")
+	}
+
+	buffer := make([]byte, 1)
+	if count, err := pipeIOWithTimeout(server, buffer, false, true, 10); count != 0 ||
+		!errors.Is(err, errPipeOperationTimeout) {
+		t.Fatalf("pending read did not return a confirmed timeout: count=%d, err=%v", count, err)
+	}
+	var written uint32
+	if err := syscall.WriteFile(client, []byte{1}, &written, nil); err != nil {
+		t.Fatal("client could not write after the pending server read was canceled")
+	}
+	if written != 1 {
+		t.Fatal("client write after cancellation was incomplete")
+	}
+}
+
+func TestWindowsRestorationIsVerifiedBeforeThreadUnlock(t *testing.T) {
+	unlocked := false
+	err := verifyRestoredContextBeforeUnlock(
+		func() error {
+			if unlocked {
+				return errors.New("thread was unlocked before restoration verification")
+			}
+			return nil
+		},
+		func() { unlocked = true },
+	)
+	if err != nil || !unlocked {
+		t.Fatal("successful restoration was not verified before unlocking the thread")
+	}
+
+	unlocked = false
+	err = verifyRestoredContextBeforeUnlock(
+		func() error { return errors.New("restoration verification failed") },
+		func() { unlocked = true },
+	)
+	if err == nil || unlocked {
+		t.Fatal("failed restoration verification unlocked the thread")
+	}
 }
 
 func TestWindowsPipeDACLAndSameAccountPeerIdentity(t *testing.T) {
