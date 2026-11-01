@@ -1,102 +1,138 @@
 # Current PR Contract
 
 ## Goal
-Implement the user-approved, locally runnable synthetic Kredoxi vertical slice
-with independently executing broker, consumer, and synthetic service processes.
+Run reproducible, synthetic-only Linux pathname Unix-domain socket and Windows
+named-pipe experiments to measure whether OS account/token authorization adds
+a meaningful local boundary beyond Kredoxi's current mTLS key-holder model.
+Use the evidence to inform, but not decide, Architecture ADR 0002.
 
 ## Contract status
 active
 
 ## Non-goals
-Production vaults, real credentials, cloud accounts, transparent interception,
-process identity attestation, privileged tamper resistance, releases, licensing,
-other repositories and organization administration.
+Production transport, resolver/broker changes, ADR acceptance, production
+architecture selection, real credentials, persistent account creation,
+workstation security-setting changes, privileged exploitation, OS interception,
+process/executable attestation, anti-tamper, release, any merge outside the
+narrowly authorized Core PR #5 integration below, or Architecture repository
+edits.
 
 ## Carry-forward rules
 Preserve every installed core invariant. Synthetic-only fixtures and honest
 security claims are durable requirements.
 
 ## Approved scope
-Go standard-library broker, explicit client API, ephemeral synthetic provider,
-exact-reference deny-by-default policy, TLS 1.3 mutual authentication,
-versioned local telemetry, consumer challenge verification, adversarial tests,
-documentation, CI, current cARL integration, commit/push and a PR without merge.
-The execution brief explicitly approves governance configuration and CI.
+An isolated Go standard-library experiment under `experiments/ipc/`, its source
+and tests, a reproducible README with measured results and residual risks, and
+the minimum CI wiring needed to run native tests on actual Linux and Windows
+runners. Update this contract and the task-scoped plan. Create and push Core PR
+A after validation; keep it open until the required gates pass, then merge
+only under the controlled integration amendment below.
+
+Before PR A, a separate governance-reconciliation commit is also authorized:
+restore `.github/carl/trust-boundaries.md` byte-for-byte to the official cARL
+v1.0.2 embedded artifact after preserving its Kredoxi-specific requirements in
+the existing project-owned `.github/carl/kredoxi-controls.md`. Keep this
+reconciliation separately reviewable from the IPC experiment commit.
 
 ## Intentional amendments
-Adopt a Go MVP profile retaining all core controls. Platform/cloud packs remain
-installed and selected but inactive unless relevant to a future approved task.
-Installed memory describes upstream cARL, not Kredoxi; reconcile repository truth.
-Extend the existing synthetic demo across process boundaries without changing
-the broker wire protocol or provider-neutral contract. A local demo supervisor
-may bootstrap synthetic certificates and values through process stdin pipes;
-no private keys or credentials are written to files. OS-native IPC, OS-account
-enforcement, and executable identity remain undecided and require a separately
-reviewed Architecture ADR and owner approval.
+This contract supersedes the completed synthetic-MVP/F1-F4 execution scope for
+this branch only. It authorizes non-production OS-native IPC experiments that
+the prior Core contract deferred, while preserving the explicit boundary that
+no production resolver, broker, provider, or `/v1/resolve` route may change.
+Architecture ADR 0001 remains accepted for the MVP. ADR 0002 remains proposed;
+only an owner may approve a production architecture or accept that ADR.
 
 ## Forbidden scope
-No personal secret-store access, credential harvesting, production secret store,
-privileged host modifications, security-control weakening, release or PR merge.
+No production changes to `internal/resolver`, `internal/synthetic`, `cmd/`,
+wire protocol, or telemetry. No IPC routing/provider in production. No personal
+or cloud secret access, real credentials, persistent OS users, local security
+policy changes, EDR changes, drivers, privileged test setup, releases, merges
+outside the controlled Core PR #5 integration below, Architecture repo writes,
+plaintext fallback, or unsupported security claims.
+Do not use abstract Linux sockets.
 
 ## Architectural constraints
-Loopback-only TLS 1.3 between independent broker and consumer processes. The
-separate synthetic service verifies a challenge response. URI
-`kredoxi://v1/demo/example/password`.
-Client certificate URI SAN `urn:kredoxi:principal:demo-consumer`.
-Certificate possession is not executable identity. No external Go modules.
+The experiment is independent of the production broker and uses only synthetic
+disposable values. Linux uses pathname `AF_UNIX` streams and derives peer
+credentials from `SO_PEERCRED`; Windows uses named pipes with an explicit DACL,
+client-token SID inspection under impersonation, and checked context restoration.
+Both preserve default-deny exact-reference authorization before provider lookup.
+Never trust request-supplied identity, PID, name, path, or executable claims.
+Use no non-standard Go modules unless a demonstrated native API need is
+documented and approved first.
 
 ## Security constraints
-Strict grammar and JSON, no arbitrary provider paths, authenticate before lookup,
-exact immutable policy, no credentials in config/events/errors, bounded requests,
-explicit unavailable provider/broker/telemetry errors, no caching in the client.
-Ephemeral private CA and keys stay in memory in the synthetic demo.
+Bound and validate requests; fail closed on endpoint, identity, authorization,
+impersonation, and provider errors. Do not disclose synthetic values, private
+keys, raw bootstrap data, or sensitive diagnostics in output. Never treat PID
+or process name as executable identity, or account/token identity as code
+integrity. Same-account compromise and privileged attackers are not claimed to
+be prevented. No automatic mTLS/IPC fallback or bypass.
 
-## F1-F4 remediation scope
-The authorized Core #4 remediation adds deterministic child supervision to the
-demo: build broker, consumer, and synthetic-service executables outside the
-checkout with reproducible build metadata; execute and reap only owned child
-handles; bound readiness, control, and shutdown waits; and verify cleanup of
-processes, listeners, and temporary binaries. Broker stdin control messages
-must receive correlated acknowledgements only after the requested state is
-applied; stale, malformed, duplicate, rejected, missing, and post-exit
-acknowledgements fail safely. Add synchronized real-process fault tests for
-startup, resolution, broker/service failures, isolation, restart, and cleanup.
-Capture every child and supervisor output stream and check synthetic secrets,
-private-key material, and secret-bearing bootstrap diagnostics without printing
-the values in test failures.
-
-Do not introduce OS-native IPC, process identity or privileged anti-tamper,
-production providers, or changes to the HTTP wire protocol/telemetry schema.
-Minimal platform-native containment is authorized only to supervise owned
-children: Linux process groups plus parent-death signal, and Windows Job
-Objects with kill-on-close. Do not claim guarantees beyond the tested direct
-child model or platform; other operating systems use no containment primitive.
-Never claim an abruptly killed supervisor owns or reaps descendants unless
-directly demonstrated on that platform.
+## Expected evidence
+Test forged identity fields, exact-policy denial before provider lookup,
+authorized missing-secret semantics, separate same-account client processes,
+real distinct-account enforcement only where an already authorized isolated
+environment exists, endpoint permissions/pre-creation/replacement/stale path,
+broker/client lifecycle, bounded malformed and oversized input, concurrency,
+and diagnostic/credential leakage. Windows additionally tests explicit DACL,
+token SID derivation, impersonation success/failure, restoration, remote-pipe
+denial, and handle inheritance/duplication where safely reproducible. Compare
+with unchanged mTLS behavior, including copied synthetic key use. Record each
+scenario's capability, expected and observed result, and residual risk.
 
 ## Files expected to change
-`internal/`, `cmd/`, `examples/`, `README.md`, `docs/`, `ROADMAP.md`, and this
-active contract/plan as needed. Do not modify managed harness adapters or
-unrelated CI/dependency policy.
+`experiments/ipc/`, `.github/workflows/ci.yml`,
+`.github/carl/current-pr-contract.md`,
+`.github/carl/trust-boundaries.md`, and task-scoped files under
+`.github/carl/plans/`. The reconciliation must not remove or weaken the
+project-owned controls in `.github/carl/kredoxi-controls.md`. No other
+production or Architecture files are in scope.
 
 ## Tests / validation
-`go test ./...`, race detector where C toolchain exists, `go vet ./...`,
-gofmt, `go run ./cmd/demo`, vulnerability scan, cARL status/effective/trace.
-Tests must cover parsing, authentication, policy, independent-process success
-and denial, failures, leakage, lifecycle and isolation. F1-F4 additionally
-require bounded child startup/control/shutdown, actual child process exits,
-temporary executable cleanup, correlated applied-state acknowledgements, and
-platform-native Linux and Windows subprocess lifecycle evidence in CI.
+Run native `go test ./...`, `go build ./...`, `go vet ./...`, formatting,
+race tests where supported, `govulncheck`, secret/diagnostic scans, and cARL
+status/effective/trace. A real Windows run is possible on this Windows host;
+the host has no installed WSL distribution, so Linux native tests require the
+repository's actual Linux CI runner. Cross-compilation or mocks do not count as
+native Linux evidence. Never create an account or modify host security settings
+to manufacture distinct-account results.
 
 ## Stop conditions
-Real credentials required; unresolved governance drift; unexpected conflicting
-external writes; permission denials preventing safe execution.
+Any test needing real credentials, administrator/root access, persistent OS
+account changes, weakened security controls, or changes to production code
+must stop. Stop on unresolved governance drift or unexpected conflicting
+external writes.
 
 ## Escalation triggers
-Production-provider work, process/OS interception, new dependencies, privilege
-changes, releases, licensing or unsupported claims.
+Any dependency addition, privileged setup, unsupported native API behavior,
+production transport change, owner decision, Architecture ADR edit, or
+security claim beyond measured evidence.
 
 ## Context reset notes
-Keep the contract active until the PR is reviewed; do not merge. F1-F4 are
-authorized remediation work within Core #4; no separate architecture decision
-is approved by this amendment.
+Keep this contract active through Core PR A review, then close or supersede it.
+Architecture evidence/ADR evaluation belongs to the separately coordinated
+follow-up PR B. Do not merge either PR without explicit owner approval.
+
+## Controlled integration amendment
+**Owner approval (2026-11-01):** “The owner explicitly authorises merging these
+two PRs, in that order, provided all required security, governance and CI gates
+pass.”
+
+This amendment narrows the prior “leave it open and unmerged” and “merge”
+restrictions only for the first stage of that sequence: Core PR #5 on
+`goldjg-native-ipc-experiments`. This session may merge Core PR #5 only after
+the current PR head has passed every required security, governance, and CI gate,
+the required checks are associated with that exact head, branch protection
+remains enforced, no unresolved blocking review discussion exists, and the PR
+is mergeable without bypass. After merge, independently verify GitHub reports
+the PR merged and verify the resulting default-branch head and required native
+Linux, native Windows, and governance checks. Stop if any gate fails or the
+default-branch checks do not pass.
+
+The second-stage Architecture PR #4 is not approved for action in this Core
+session. Do not edit or merge it, accept ADR 0002, or change production
+architecture. The owner will assign the Architecture follow-up after Core
+merge and healthy default-branch validation. No other PR, merge-strategy
+bypass, auto-merge, release, or production transport change is authorized.

@@ -22,6 +22,7 @@ jobs:
       - name: Build, test and static analysis
         run: |
           go build ./...
+          go test ./experiments/ipc -count=1 -v
           go test ./...
           go vet ./...
           go run ./cmd/demo
@@ -34,7 +35,7 @@ jobs:
       - name: Check formatting
         shell: pwsh
         run: |
-          $files = Get-ChildItem internal,cmd,examples -Recurse -Filter *.go
+          $files = Get-ChildItem internal,cmd,examples,experiments -Recurse -Filter *.go
           $unformatted = & gofmt -l $files.FullName
           if ($LASTEXITCODE -ne 0 -or $unformatted) { throw "gofmt check failed" }
       - name: Dependency vulnerability check
